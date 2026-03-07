@@ -8,14 +8,11 @@ const { WebSocketServer } = require("ws");
 
 // ── Startup validation ──────────────────────────────────────────────────────
 // Ensure all necessary environment variables are set for Alpaca API access.
-const missing = ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"].filter(
-  (k) => !process.env[k] || process.env[k].trim() === "",
-);
-if (missing.length) {
-  console.error("STARTUP FAILED — Missing or empty Replit Secrets:");
-  missing.forEach((k) => console.error("  ✗", k));
-  console.error("Add them via the Secrets tab (lock icon) in Replit");
-  process.exit(1);
+const API_KEY = process.env.ALPACA_API_KEY || '';
+const API_SECRET = process.env.ALPACA_SECRET_KEY || '';
+if (!API_KEY || !API_SECRET) {
+  console.warn('WARNING: Alpaca keys not found — will retry connection');
+}
 }
 
 const API_KEY = process.env.ALPACA_API_KEY;
