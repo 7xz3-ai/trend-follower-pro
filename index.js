@@ -88,17 +88,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
+
+// API routes
 app.get('/health', (req, res) => res.json({ ok:true }));
 app.get('/status', (req, res) => res.json({ alpaca:alpaca.ready, clients:clients.size }));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// Catch-all - serve index.html for any route not matched above
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  console.log('Serving index.html from:', indexPath);
+  res.sendFile(indexPath);
+});
 
 const wss = new WebSocketServer({ server, path:'/ws' });
 
 wss.on('connection', (ws) => {
   const id = cid++;
   clients.set(ws, { id });
-  console.log('Client', id, 'connected');
+  console.log('Client', id, 'connected. Total:', clients.size);
 
   ws.send(JSON.stringify({
     type:'connected', clientId:id, symbols:SYMBOLS,
@@ -116,7 +125,10 @@ wss.on('connection', (ws) => {
   ws.on('error', () => clients.delete(ws));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('====================================');
   console.log('TREND_FOLLOWER_PRO running on port', PORT);
+  console.log('Public dir:', path.join(__dirname, 'public'));
+  console.log('====================================');
   connectAlpaca();
 });
