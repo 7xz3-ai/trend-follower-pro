@@ -1,10 +1,21 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "npm install"
+    "buildCommand": "npm install && mkdir -p public"
   },
   "deploy": {
     "startCommand": "node index.js",
     "restartPolicyType": "ON_FAILURE"
   }
 }
+```
+
+Then also go to **Railway → Variables** and add one more variable:
+
+| Key | Value |
+|-----|-------|
+| `PUBLIC_DIR` | `./public` |
+
+Commit and let it redeploy. Then check the **Deploy Logs** and look for this line:
+```
+Public dir: /app/public
