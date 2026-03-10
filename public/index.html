@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
   <title>TREND_FOLLOWER_PRO</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -10,412 +10,379 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #050507; font-family: 'IBM Plex Mono', monospace; color: #e2e8f0; }
-    ::-webkit-scrollbar { width: 3px; height: 3px; }
-    ::-webkit-scrollbar-track { background: #0a0a0f; }
-    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
-    input[type=range] { accent-color: #22d3ee; cursor: pointer; }
-    input[type=range]:disabled { opacity: 0.3; cursor: not-allowed; }
-    .chart-container { width: 100%; height: 100%; }
-    .flash-green { animation: flashG 0.8s ease; }
-    .flash-red { animation: flashR 0.8s ease; }
-    @keyframes flashG { 0%,100%{background:transparent} 50%{background:#022c22} }
-    @keyframes flashR { 0%,100%{background:transparent} 50%{background:#1c0505} }
-    .pulse { animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-    .spin { animation: spin 1s linear infinite; }
-    @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-    .market-open { box-shadow: 0 0 12px #22c55e44; }
-    .market-closed { box-shadow: 0 0 12px #ef444444; }
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#050507;font-family:'IBM Plex Mono',monospace;color:#e2e8f0;overflow-x:hidden;}
+    ::-webkit-scrollbar{width:3px;height:3px;}
+    ::-webkit-scrollbar-track{background:#0a0a0f;}
+    ::-webkit-scrollbar-thumb{background:#1e293b;border-radius:2px;}
+    input[type=range]{accent-color:#22d3ee;cursor:pointer;width:100%;}
+    input[type=range]:disabled{opacity:0.3;cursor:not-allowed;}
+    .pulse{animation:pulse 2s infinite;}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
   </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef, useCallback } = React;
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const SEEDS = [
-  { symbol:'NVDA',  price:875,  vol:0.020, baseRsi:52, tier:'SEMI'  },
-  { symbol:'TSLA',  price:245,  vol:0.031, baseRsi:46, tier:'MEGA'  },
-  { symbol:'AAPL',  price:222,  vol:0.012, baseRsi:50, tier:'MEGA'  },
-  { symbol:'MSFT',  price:415,  vol:0.013, baseRsi:51, tier:'MEGA'  },
-  { symbol:'AMZN',  price:210,  vol:0.016, baseRsi:49, tier:'MEGA'  },
-  { symbol:'META',  price:615,  vol:0.017, baseRsi:54, tier:'MEGA'  },
-  { symbol:'GOOGL', price:185,  vol:0.013, baseRsi:48, tier:'MEGA'  },
-  { symbol:'AMD',   price:168,  vol:0.024, baseRsi:45, tier:'SEMI'  },
-  { symbol:'SMCI',  price:48,   vol:0.045, baseRsi:38, tier:'SEMI'  },
-  { symbol:'MSTR',  price:380,  vol:0.048, baseRsi:42, tier:'SEMI'  },
-  { symbol:'SOXL',  price:28,   vol:0.055, baseRsi:40, tier:'ETF'   },
-  { symbol:'SPY',   price:585,  vol:0.008, baseRsi:52, tier:'ETF'   },
-  { symbol:'QQQ',   price:510,  vol:0.010, baseRsi:51, tier:'ETF'   },
-  { symbol:'TQQQ',  price:72,   vol:0.032, baseRsi:47, tier:'ETF'   },
-  { symbol:'PLTR',  price:82,   vol:0.030, baseRsi:47, tier:'GRWTH' },
-  { symbol:'NFLX',  price:1050, vol:0.015, baseRsi:53, tier:'GRWTH' },
-  { symbol:'COIN',  price:245,  vol:0.044, baseRsi:44, tier:'GRWTH' },
-  { symbol:'MARA',  price:16,   vol:0.065, baseRsi:39, tier:'GRWTH' },
-  { symbol:'SOFI',  price:14,   vol:0.038, baseRsi:43, tier:'GRWTH' },
-  { symbol:'RIVN',  price:13,   vol:0.050, baseRsi:41, tier:'GRWTH' },
+const SEEDS=[
+  {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
+  {symbol:'TSLA',price:245,vol:0.031,baseRsi:46,tier:'MEGA'},
+  {symbol:'AAPL',price:222,vol:0.012,baseRsi:50,tier:'MEGA'},
+  {symbol:'MSFT',price:415,vol:0.013,baseRsi:51,tier:'MEGA'},
+  {symbol:'AMZN',price:210,vol:0.016,baseRsi:49,tier:'MEGA'},
+  {symbol:'META',price:615,vol:0.017,baseRsi:54,tier:'MEGA'},
+  {symbol:'GOOGL',price:185,vol:0.013,baseRsi:48,tier:'MEGA'},
+  {symbol:'AMD',price:168,vol:0.024,baseRsi:45,tier:'SEMI'},
+  {symbol:'SMCI',price:48,vol:0.045,baseRsi:38,tier:'SEMI'},
+  {symbol:'MSTR',price:380,vol:0.048,baseRsi:42,tier:'SEMI'},
+  {symbol:'SOXL',price:28,vol:0.055,baseRsi:40,tier:'ETF'},
+  {symbol:'SPY',price:585,vol:0.008,baseRsi:52,tier:'ETF'},
+  {symbol:'QQQ',price:510,vol:0.010,baseRsi:51,tier:'ETF'},
+  {symbol:'TQQQ',price:72,vol:0.032,baseRsi:47,tier:'ETF'},
+  {symbol:'PLTR',price:82,vol:0.030,baseRsi:47,tier:'GRWTH'},
+  {symbol:'NFLX',price:1050,vol:0.015,baseRsi:53,tier:'GRWTH'},
+  {symbol:'COIN',price:245,vol:0.044,baseRsi:44,tier:'GRWTH'},
+  {symbol:'MARA',price:16,vol:0.065,baseRsi:39,tier:'GRWTH'},
+  {symbol:'SOFI',price:14,vol:0.038,baseRsi:43,tier:'GRWTH'},
+  {symbol:'RIVN',price:13,vol:0.050,baseRsi:41,tier:'GRWTH'},
 ];
+const TIER_COLOR={MEGA:'#22d3ee',SEMI:'#a78bfa',ETF:'#38bdf8',GRWTH:'#fbbf24'};
+const TIMEFRAMES=['tick','1min','5min','15min','30min','1hr','4hr','1day'];
+const TF_API={'1min':'1Min','5min':'5Min','15min':'15Min','30min':'30Min','1hr':'1Hour','4hr':'4Hour','1day':'1Day'};
+const INITIAL_EQUITY=100000;
+const WS_TIMEOUT=4000;
 
-const TIER_COLOR = { MEGA:'#22d3ee', SEMI:'#a78bfa', ETF:'#38bdf8', GRWTH:'#fbbf24' };
-const TIMEFRAMES = ['tick','5min','15min','30min','1hr','4hr','1day'];
-const TF_API = { '5min':'5Min','15min':'15Min','30min':'30Min','1hr':'1Hour','4hr':'4Hour','1day':'1Day' };
-const INITIAL_EQUITY = 100000;
-const WS_TIMEOUT = 4000;
+const f2=n=>+Number(n).toFixed(2);
+const f4=n=>+Number(n).toFixed(4);
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+const pctOf=(a,b)=>b===0?0:((a-b)/b)*100;
+const usd=n=>'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pnlFmt=n=>(n>=0?'+':'-')+usd(n);
 
-// ── Market Hours ─────────────────────────────────────────────────────────────
-function getMarketStatus() {
-  const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone:'America/New_York' }));
-  const day = et.getDay();
-  const h = et.getHours(), m = et.getMinutes();
-  const mins = h * 60 + m;
-  const isWeekday = day >= 1 && day <= 5;
-  const isPreMarket  = isWeekday && mins >= 240  && mins < 570;  // 4:00–9:30
-  const isOpen       = isWeekday && mins >= 570  && mins < 960;  // 9:30–16:00
-  const isAfterHours = isWeekday && mins >= 960  && mins < 1200; // 16:00–20:00
-  const nextOpen = (() => {
-    let d = new Date(et); d.setSeconds(0,0);
-    if (isOpen) { d.setHours(16,0,0,0); return 'Closes ' + d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'}); }
-    if (isPreMarket) { d.setHours(9,30,0,0); return 'Opens ' + d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'}); }
-    return 'Closed';
-  })();
-  const sessions = [
-    { name:'Pre-Market', time:'4:00–9:30 AM ET',  active: isPreMarket },
-    { name:'Regular',    time:'9:30 AM–4:00 PM ET', active: isOpen },
-    { name:'After Hours',time:'4:00–8:00 PM ET',  active: isAfterHours },
-  ];
-  const status = isOpen?'OPEN':isPreMarket?'PRE-MKT':isAfterHours?'AH':'CLOSED';
-  return { status, isOpen, isPreMarket, isAfterHours, isWeekday, sessions, nextOpen, etTime: et };
+function getMarketStatus(){
+  const now=new Date();
+  const et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
+  const day=et.getDay(),h=et.getHours(),m=et.getMinutes(),mins=h*60+m;
+  const wd=day>=1&&day<=5;
+  const isPre=wd&&mins>=240&&mins<570;
+  const isOpen=wd&&mins>=570&&mins<960;
+  const isAH=wd&&mins>=960&&mins<1200;
+  let next='Closed';
+  if(isOpen){const d=new Date(et);d.setHours(16,0,0,0);next='Closes '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});}
+  else if(isPre){const d=new Date(et);d.setHours(9,30,0,0);next='Opens '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});}
+  const status=isOpen?'OPEN':isPre?'PRE-MKT':isAH?'AFTER-HRS':'CLOSED';
+  return{status,isOpen,isPre,isAH,etTime:et,next};
 }
 
-// ── Signal Engine ─────────────────────────────────────────────────────────────
-const f2 = n => +Number(n).toFixed(2);
-const f4 = n => +Number(n).toFixed(4);
-const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
-const pctOf = (a,b) => b===0?0:((a-b)/b)*100;
-const usd = n => '$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const pnlFmt = n => (n>=0?'+':'-')+usd(n);
-
-function computeSignal(prev, newPrice) {
-  const vol = prev.vol ?? 0.02;
-  const atr = f2(newPrice * vol);
-  const ema9 = f2(newPrice * 0.9978);
-  const ema21 = f2(newPrice * 0.9942);
-  const sma50 = f2(newPrice * 0.9845);
-  const sma200 = f2(newPrice * 0.9230);
-  const prevRsi = prev.rsi ?? prev.baseRsi ?? 50;
-  const rsi = clamp(prevRsi + (50-prevRsi)*0.055 + (Math.random()*3.2-1.6), 8, 92);
-  const momentum = pctOf(newPrice, prev.price ?? newPrice);
-  const uptrend   = newPrice>ema21 && ema21>sma50 && sma50>sma200;
-  const downtrend = newPrice<ema21 && ema21<sma50;
-  const rsiScore  = rsi>=32&&rsi<=44?1.0:rsi>44&&rsi<=52?0.72:rsi>52&&rsi<=60?0.30:rsi<32?0.18:0.0;
-  const trendScore= uptrend?1.0:!downtrend?0.35:0.0;
-  const momScore  = momentum>0&&momentum<0.55?clamp(momentum/0.3,0,1):momentum>=0.55?0.12:0;
-  const emaScore  = newPrice>ema9?0.90:0.10;
-  const volBonus  = vol>=0.035?1.0:vol>=0.020?0.65:0.40;
-  const raw = (rsiScore*0.38+trendScore*0.28+momScore*0.18+emaScore*0.10+volBonus*0.06)*100;
-  const strength = clamp(raw+(Math.random()*1.8-0.9),0,99);
-  let signal = 'HOLD';
-  if (uptrend && rsi>=26 && rsi<=54 && strength>=50) signal = 'BUY';
-  else if (rsi>=70 || downtrend) signal = 'SELL';
-  const stopLoss   = signal==='BUY' ? f2(newPrice-atr*1.5) : null;
-  const takeProfit = signal==='BUY' ? f2(newPrice+atr*2.5) : null;
-  const riskReward = stopLoss&&takeProfit ? +((takeProfit-newPrice)/(newPrice-stopLoss)).toFixed(2) : null;
-  return { atr,ema9,ema21,sma50,sma200,rsi:f2(rsi),momentum:+momentum.toFixed(4),uptrend,downtrend,signal,signalStrength:f2(strength),stopLoss,takeProfit,riskReward };
+function computeSignal(prev,newPrice){
+  const vol=prev.vol??0.02;
+  const atr=f2(newPrice*vol);
+  const ema9=f2(newPrice*0.9978),ema21=f2(newPrice*0.9942);
+  const sma50=f2(newPrice*0.9845),sma200=f2(newPrice*0.9230);
+  const prevRsi=prev.rsi??prev.baseRsi??50;
+  const rsi=clamp(prevRsi+(50-prevRsi)*0.055+(Math.random()*3.2-1.6),8,92);
+  const momentum=pctOf(newPrice,prev.price??newPrice);
+  const uptrend=newPrice>ema21&&ema21>sma50&&sma50>sma200;
+  const downtrend=newPrice<ema21&&ema21<sma50;
+  const rsiScore=rsi>=32&&rsi<=44?1.0:rsi>44&&rsi<=52?0.72:rsi>52&&rsi<=60?0.30:rsi<32?0.18:0.0;
+  const trendScore=uptrend?1.0:!downtrend?0.35:0.0;
+  const momScore=momentum>0&&momentum<0.55?clamp(momentum/0.3,0,1):momentum>=0.55?0.12:0;
+  const emaScore=newPrice>ema9?0.90:0.10;
+  const volBonus=vol>=0.035?1.0:vol>=0.020?0.65:0.40;
+  const raw=(rsiScore*0.38+trendScore*0.28+momScore*0.18+emaScore*0.10+volBonus*0.06)*100;
+  const strength=clamp(raw+(Math.random()*1.8-0.9),0,99);
+  let signal='HOLD';
+  if(uptrend&&rsi>=26&&rsi<=54&&strength>=50)signal='BUY';
+  else if(rsi>=70||downtrend)signal='SELL';
+  const stopLoss=signal==='BUY'?f2(newPrice-atr*1.5):null;
+  const takeProfit=signal==='BUY'?f2(newPrice+atr*2.5):null;
+  const riskReward=stopLoss&&takeProfit?+((takeProfit-newPrice)/(newPrice-stopLoss)).toFixed(2):null;
+  return{atr,ema9,ema21,sma50,sma200,rsi:f2(rsi),momentum:+momentum.toFixed(4),uptrend,downtrend,signal,signalStrength:f2(strength),stopLoss,takeProfit,riskReward};
 }
 
-function evaluateExit(pos, newPrice, sig, cfg, nowMs) {
-  const profitPts = newPrice - pos.entryPrice;
-  const hwm = Math.max(pos.hwm??pos.entryPrice, newPrice);
-  const trailSL = f2(hwm - sig.atr*cfg.trailMult);
-  const bestSL = Math.max(pos.stopLoss, trailSL);
-  const heldSec = (nowMs-pos.enteredAt)/1000;
-  const profInAtrs = profitPts/(pos.atr||1);
-  const beSL = profInAtrs>=1.0?Math.max(bestSL,pos.entryPrice):bestSL;
-  if (newPrice<=beSL) return {close:true,reason:beSL>=pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
-  if (newPrice>=pos.takeProfit) return {close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
-  if (sig.rsi>=68&&sig.momentum<0.05&&profInAtrs>=0.8) return {close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
-  if (profInAtrs>=1.2&&sig.momentum<-0.08) return {close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
-  if (profInAtrs>=1.0&&newPrice<sig.ema9) return {close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
-  if (heldSec>=cfg.maxHoldSec) return {close:true,reason:'TIME_EXIT',hwm,newSL:beSL};
-  return {close:false,reason:null,hwm,newSL:beSL};
+function evaluateExit(pos,newPrice,sig,cfg,nowMs){
+  const profitPts=newPrice-pos.entryPrice;
+  const hwm=Math.max(pos.hwm??pos.entryPrice,newPrice);
+  const trailSL=f2(hwm-sig.atr*cfg.trailMult);
+  const bestSL=Math.max(pos.stopLoss,trailSL);
+  const heldSec=(nowMs-pos.enteredAt)/1000;
+  const profInAtrs=profitPts/(pos.atr||1);
+  const beSL=profInAtrs>=1.0?Math.max(bestSL,pos.entryPrice):bestSL;
+  if(newPrice<=beSL)return{close:true,reason:beSL>=pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
+  if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
+  if(sig.rsi>=68&&sig.momentum<0.05&&profInAtrs>=0.8)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
+  if(profInAtrs>=1.2&&sig.momentum<-0.08)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
+  if(profInAtrs>=1.0&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
+  if(heldSec>=cfg.maxHoldSec)return{close:true,reason:'TIME_EXIT',hwm,newSL:beSL};
+  return{close:false,reason:null,hwm,newSL:beSL};
 }
 
-// ── Market Status Widget ──────────────────────────────────────────────────────
-function MarketStatus() {
-  const [status, setStatus] = useState(getMarketStatus());
-  useEffect(() => {
-    const id = setInterval(() => setStatus(getMarketStatus()), 30000);
-    return () => clearInterval(id);
-  }, []);
-  const col = status.isOpen?'#22c55e':status.isPreMarket||status.isAfterHours?'#fbbf24':'#ef4444';
-  return (
-    <div style={{display:'flex',alignItems:'center',gap:10,background:'#0a0a10',border:'1px solid #1a1a2e',padding:'6px 14px',flexWrap:'wrap',gap:8}}>
-      <div style={{display:'flex',alignItems:'center',gap:6}}>
-        <div style={{width:8,height:8,borderRadius:'50%',background:col,boxShadow:'0 0 8px '+col}} className={status.isOpen?'pulse':''}/>
-        <span style={{color:col,fontWeight:700,fontSize:11,letterSpacing:'0.1em'}}>{status.status}</span>
-      </div>
-      <span style={{color:'#334155',fontSize:9}}>|</span>
-      <span style={{color:'#64748b',fontSize:9}}>{status.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/New_York'})} ET</span>
-      <span style={{color:'#334155',fontSize:9}}>|</span>
-      {status.sessions.map(s => (
-        <span key={s.name} style={{fontSize:9,color:s.active?col:'#374151',fontWeight:s.active?700:400}}>
-          {s.active?'◉ ':''}{s.name} {s.time}
-        </span>
-      ))}
-      <span style={{color:'#334155',fontSize:9}}>|</span>
-      <span style={{fontSize:9,color:'#475569'}}>{status.nextOpen}</span>
-    </div>
-  );
+function generateDemoDay(seed,bars){
+  if(bars&&bars.length>0)return bars.map(b=>({t:Math.floor(new Date(b.t).getTime()/1000),o:b.o,h:b.h,l:b.l,c:b.c}));
+  const result=[];
+  let price=seed.price*(0.97+Math.random()*0.06);
+  const baseTs=Math.floor(Date.now()/1000)-23400;
+  for(let i=0;i<390;i++){
+    const drift=i<60?0.00015:i<200?0.00008:-0.00005;
+    price=Math.max(0.01,f2(price*(1+drift+seed.vol*0.28*(Math.random()*2-1))));
+    const o=f2(price*(1+(Math.random()-0.5)*0.002));
+    const h=f2(Math.max(price,o)*(1+Math.random()*0.003));
+    const l=f2(Math.min(price,o)*(1-Math.random()*0.003));
+    result.push({t:baseTs+i*60,o,h,l,c:price});
+  }
+  return result;
 }
 
-// ── Chart Component ───────────────────────────────────────────────────────────
-function StockChart({ symbol, livePrice, dataMode }) {
-  const containerRef = useRef(null);
-  const chartRef = useRef(null);
-  const seriesRef = useRef(null);
-  const tickBarsRef = useRef({});
-  const [tf, setTf] = useState('5min');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const seed = SEEDS.find(s => s.symbol === symbol);
+function getRiskAlerts(portfolio,cfg,equity){
+  const alerts=[];
+  const cashPct=(portfolio.cash/equity)*100;
+  if(cashPct<15)alerts.push({level:'danger',msg:'Cash critical: '+cashPct.toFixed(0)+'%'});
+  else if(cashPct<25)alerts.push({level:'warn',msg:'Cash low: '+cashPct.toFixed(0)+'%'});
+  const drawdown=pctOf(equity,INITIAL_EQUITY);
+  if(drawdown<-5)alerts.push({level:'danger',msg:'Drawdown: '+drawdown.toFixed(1)+'%'});
+  else if(drawdown<-2)alerts.push({level:'warn',msg:'Drawdown: '+drawdown.toFixed(1)+'%'});
+  if(portfolio.positions.length>=cfg.maxPositions)alerts.push({level:'info',msg:'Max positions ('+cfg.maxPositions+')'});
+  portfolio.positions.filter(p=>(p.currentPrice-p.entryPrice)/p.entryPrice<-0.02).forEach(p=>alerts.push({level:'warn',msg:p.symbol+' down '+pctOf(p.currentPrice,p.entryPrice).toFixed(1)+'%'}));
+  return alerts;
+}
 
-  const buildTickBar = useCallback((price, ts) => {
-    const sec = Math.floor((ts || Date.now()) / 1000);
-    const bucket = Math.floor(sec / 5) * 5;
-    const existing = tickBarsRef.current[bucket];
-    if (existing) {
-      existing.high = Math.max(existing.high, price);
-      existing.low  = Math.min(existing.low, price);
-      existing.close = price;
-    } else {
-      tickBarsRef.current[bucket] = { time:bucket, open:price, high:price, low:price, close:price };
-    }
-    return tickBarsRef.current[bucket];
-  }, []);
+// ── Chart ─────────────────────────────────────────────────────────────────────
+function StockChart({symbol,livePrice,demoData,isDemoMode}){
+  const containerRef=useRef(null);
+  const chartRef=useRef(null);
+  const seriesRef=useRef(null);
+  const markersRef=useRef([]);
+  const tickBuf=useRef({});
+  const [tf,setTf]=useState('5min');
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState(null);
+  const seed=SEEDS.find(s=>s.symbol===symbol);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const chart = LightweightCharts.createChart(containerRef.current, {
-      layout: { background:{ color:'#060608' }, textColor:'#94a3b8' },
-      grid: { vertLines:{ color:'#0f0f14' }, horzLines:{ color:'#0f0f14' } },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      rightPriceScale: { borderColor:'#1e293b', textColor:'#94a3b8' },
-      timeScale: { borderColor:'#1e293b', timeVisible:true, secondsVisible:tf==='tick' },
-      handleScroll: true, handleScale: true,
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
+  useEffect(()=>{
+    if(!containerRef.current)return;
+    const chart=LightweightCharts.createChart(containerRef.current,{
+      layout:{background:{color:'#060608'},textColor:'#94a3b8'},
+      grid:{vertLines:{color:'#0d0d12'},horzLines:{color:'#0d0d12'}},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+      rightPriceScale:{borderColor:'#1e293b'},
+      timeScale:{borderColor:'#1e293b',timeVisible:true,secondsVisible:true},
+      handleScroll:true,handleScale:true,
+      width:containerRef.current.clientWidth,
+      height:containerRef.current.clientHeight||300,
     });
-    const series = chart.addCandlestickSeries({
-      upColor:'#22c55e', downColor:'#ef4444',
-      borderUpColor:'#22c55e', borderDownColor:'#ef4444',
-      wickUpColor:'#16a34a', wickDownColor:'#dc2626',
-    });
-    chartRef.current = chart;
-    seriesRef.current = series;
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current) chart.applyOptions({ width:containerRef.current.clientWidth, height:containerRef.current.clientHeight });
-    });
+    const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#16a34a',wickDownColor:'#dc2626'});
+    chartRef.current=chart;seriesRef.current=series;
+    const ro=new ResizeObserver(()=>{if(containerRef.current)chart.applyOptions({width:containerRef.current.clientWidth,height:containerRef.current.clientHeight||300});});
     ro.observe(containerRef.current);
-    return () => { ro.disconnect(); chart.remove(); };
-  }, []);
+    return()=>{ro.disconnect();chart.remove();};
+  },[]);
 
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    if (tf === 'tick') {
-      tickBarsRef.current = {};
-      if (seed) {
-        const now = Math.floor(Date.now()/1000);
-        const bars = [];
-        let p = seed.price;
-        for (let i = 299; i >= 0; i--) {
-          p = Math.max(0.01, f2(p*(1+seed.vol*0.15*(Math.random()*2-1))));
-          const t = Math.floor((now - i*5)/5)*5;
-          bars.push({ time:t, open:p, high:f2(p*1.001), low:f2(p*0.999), close:p });
-        }
-        seriesRef.current.setData(bars);
-      }
-      return;
+  useEffect(()=>{
+    if(!seriesRef.current)return;
+    markersRef.current=[];
+    if(isDemoMode&&demoData&&demoData.length>0){
+      seriesRef.current.setData(demoData.map(b=>({time:b.t,open:b.o,high:b.h,low:b.l,close:b.c})));
+      chartRef.current.timeScale().fitContent();setLoading(false);setErr(null);return;
     }
-    setLoading(true); setError(null);
-    const apiTf = TF_API[tf] || '5Min';
-    fetch('/api/bars/' + symbol + '?timeframe=' + apiTf + '&limit=300')
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error);
-        const bars = (data.bars || []).map(b => ({
-          time: Math.floor(new Date(b.t).getTime()/1000),
-          open: b.o, high: b.h, low: b.l, close: b.c
-        })).filter(b => b.time > 0).sort((a,b) => a.time - b.time);
-        if (bars.length > 0) {
-          seriesRef.current.setData(bars);
-          chartRef.current.timeScale().fitContent();
-        } else {
-          // fallback sim data if market closed
-          const now = Math.floor(Date.now()/1000);
-          const interval = tf==='15min'?900:tf==='30min'?1800:tf==='1hr'?3600:tf==='4hr'?14400:86400;
-          const simBars = [];
-          let p = seed?.price || 100;
-          for (let i = 200; i >= 0; i--) {
-            p = Math.max(0.01, f2(p*(1+(seed?.vol||0.02)*0.5*(Math.random()*2-1))));
-            const o = f2(p*(1+(Math.random()-0.5)*0.005));
-            const h = f2(Math.max(p,o)*1.003);
-            const l = f2(Math.min(p,o)*0.997);
-            simBars.push({ time:now-i*interval, open:o, high:h, low:l, close:p });
-          }
-          seriesRef.current.setData(simBars);
-          chartRef.current.timeScale().fitContent();
-          setError('Market closed — showing simulation');
+    if(tf==='tick'){
+      tickBuf.current={};
+      const now=Math.floor(Date.now()/1000);const bars=[];let p=seed?.price||100;
+      for(let i=299;i>=0;i--){p=Math.max(0.01,f2(p*(1+(seed?.vol||0.02)*0.15*(Math.random()*2-1))));bars.push({time:Math.floor((now-i*5)/5)*5,open:p,high:f2(p*1.001),low:f2(p*0.999),close:p});}
+      seriesRef.current.setData(bars);chartRef.current.timeScale().fitContent();return;
+    }
+    setLoading(true);setErr(null);
+    fetch('/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=300')
+      .then(r=>r.json()).then(data=>{
+        if(data.error)throw new Error(data.error);
+        const bars=(data.bars||[]).map(b=>({time:Math.floor(new Date(b.t).getTime()/1000),open:b.o,high:b.h,low:b.l,close:b.c})).filter(b=>b.time>0).sort((a,b)=>a.time-b.time);
+        if(bars.length>0){seriesRef.current.setData(bars);chartRef.current.timeScale().fitContent();}
+        else{
+          const now=Math.floor(Date.now()/1000);
+          const iv={'1min':60,'15min':900,'30min':1800,'1hr':3600,'4hr':14400,'1day':86400}[tf]||300;
+          const sb=[];let p=seed?.price||100;
+          for(let i=200;i>=0;i--){p=Math.max(0.01,f2(p*(1+(seed?.vol||0.02)*0.5*(Math.random()*2-1))));const o=f2(p*(1+(Math.random()-0.5)*0.005));sb.push({time:now-i*iv,open:o,high:f2(Math.max(p,o)*1.003),low:f2(Math.min(p,o)*0.997),close:p});}
+          seriesRef.current.setData(sb);chartRef.current.timeScale().fitContent();setErr('Mkt closed — sim data');
         }
         setLoading(false);
-      })
-      .catch(e => { setError(e.message); setLoading(false); });
-  }, [symbol, tf]);
+      }).catch(e=>{setErr(e.message);setLoading(false);});
+  },[symbol,tf,isDemoMode,demoData,seed]);
 
-  // Update chart with live tick
-  useEffect(() => {
-    if (!seriesRef.current || !livePrice) return;
-    if (tf === 'tick') {
-      const bar = buildTickBar(livePrice, Date.now());
-      try { seriesRef.current.update(bar); } catch(e) {}
+  useEffect(()=>{
+    if(!seriesRef.current||!livePrice||isDemoMode)return;
+    if(tf==='tick'){
+      const now=Date.now();const bucket=Math.floor(Math.floor(now/1000)/5)*5;
+      const ex=tickBuf.current[bucket];
+      if(ex){ex.high=Math.max(ex.high,livePrice);ex.low=Math.min(ex.low,livePrice);ex.close=livePrice;}
+      else tickBuf.current[bucket]={time:bucket,open:livePrice,high:livePrice,low:livePrice,close:livePrice};
+      try{seriesRef.current.update(tickBuf.current[bucket]);}catch(e){}
     } else {
-      const now = Math.floor(Date.now()/1000);
-      try { seriesRef.current.update({ time:now, open:livePrice, high:livePrice, low:livePrice, close:livePrice }); } catch(e) {}
+      try{seriesRef.current.update({time:Math.floor(Date.now()/1000),open:livePrice,high:livePrice,low:livePrice,close:livePrice});}catch(e){}
     }
-  }, [livePrice, tf, buildTickBar]);
+  },[livePrice,tf,isDemoMode]);
 
-  return (
+  return(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',borderBottom:'1px solid #0f0f14',flexWrap:'wrap'}}>
-        <span style={{fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee',fontSize:13}}>{symbol}</span>
+      <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 8px',borderBottom:'1px solid #0f0f14',background:'#07070c',flexWrap:'wrap'}}>
+        <span style={{fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee',fontSize:12}}>{symbol}</span>
         <span style={{color:'#94a3b8',fontSize:11}}>{livePrice?usd(livePrice):'--'}</span>
-        {loading && <span style={{fontSize:9,color:'#334155'}} className="pulse">LOADING...</span>}
-        {error && <span style={{fontSize:9,color:'#f59e0b'}}>{error}</span>}
-        <div style={{marginLeft:'auto',display:'flex',gap:3}}>
-          {TIMEFRAMES.map(t => (
-            <button key={t} onClick={()=>setTf(t)} style={{
-              padding:'2px 7px',fontSize:8,fontWeight:700,
-              border:'1px solid '+(tf===t?'#22d3ee33':'#1a1a2e'),
-              color:tf===t?'#22d3ee':'#475569',background:tf===t?'#0a1f2e':'transparent',cursor:'pointer'
-            }}>{t.toUpperCase()}</button>
+        {loading&&<span style={{fontSize:7,color:'#475569'}} className="pulse">LOADING</span>}
+        {err&&<span style={{fontSize:7,color:'#f59e0b'}}>{err}</span>}
+        {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #7c3aed44',padding:'1px 4px'}}>DEMO</span>}
+        <div style={{marginLeft:'auto',display:'flex',gap:2,flexWrap:'wrap'}}>
+          {TIMEFRAMES.map(t=>(
+            <button key={t} onClick={()=>setTf(t)} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===t?'#22d3ee44':'#1a1a2e'),color:tf===t?'#22d3ee':'#334155',background:tf===t?'#0a1f2e':'transparent',cursor:'pointer'}}>
+              {t.toUpperCase()}
+            </button>
           ))}
         </div>
       </div>
-      <div ref={containerRef} style={{flexGrow:1,minHeight:0}} className="chart-container"/>
+      <div ref={containerRef} style={{flexGrow:1,minHeight:220}}/>
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
-function App() {
-  const [stocks,    setStocks]    = useState(() => SEEDS.map(s=>({...s})));
-  const [portfolio, setPortfolio] = useState({cash:INITIAL_EQUITY,positions:[],history:[]});
-  const [dataMode,  setDataMode]  = useState('idle');
-  const [autoOn,    setAutoOn]    = useState(false);
-  const [tab,       setTab]       = useState('chart');
-  const [activeTab2,setActiveTab2]= useState('positions');
-  const [sigFilter, setSigFilter] = useState('ALL');
-  const [manualAmt, setManualAmt] = useState(2000);
-  const [selectedSym, setSelectedSym] = useState('NVDA');
-  const [sysLog,    setSysLog]    = useState([]);
-  const [cfg, setCfg] = useState({
-    maxPositions:5, riskPct:1.5, minStrength:66, minRR:1.3,
-    trailMult:0.9, cooldownSec:40, maxHoldSec:360,
-  });
+// ── Equity Curve ──────────────────────────────────────────────────────────────
+function EquityCurve({history,currentEquity}){
+  const ref=useRef(null);const chartRef=useRef(null);const seriesRef=useRef(null);
+  useEffect(()=>{
+    if(!ref.current)return;
+    const chart=LightweightCharts.createChart(ref.current,{layout:{background:{color:'#060608'},textColor:'#64748b'},grid:{vertLines:{color:'#0a0a10'},horzLines:{color:'#0a0a10'}},rightPriceScale:{borderColor:'#1e293b'},timeScale:{borderColor:'#1e293b'},width:ref.current.clientWidth,height:ref.current.clientHeight||120});
+    const series=chart.addAreaSeries({topColor:'#22c55e33',bottomColor:'#22c55e00',lineColor:'#22c55e',lineWidth:2});
+    chartRef.current=chart;seriesRef.current=series;
+    const ro=new ResizeObserver(()=>{if(ref.current)chart.applyOptions({width:ref.current.clientWidth,height:ref.current.clientHeight||120});});
+    ro.observe(ref.current);return()=>{ro.disconnect();chart.remove();};
+  },[]);
+  useEffect(()=>{
+    if(!seriesRef.current)return;
+    let eq=INITIAL_EQUITY;const pts=[{time:Math.floor(Date.now()/1000)-86400,value:INITIAL_EQUITY}];
+    [...history].reverse().forEach((t,i)=>{eq+=t.profit;pts.push({time:Math.floor(Date.now()/1000)-86400+(i+1)*300,value:f2(eq)});});
+    pts.push({time:Math.floor(Date.now()/1000),value:f2(currentEquity)});
+    const sorted=pts.sort((a,b)=>a.time-b.time);
+    const deduped=sorted.filter((p,i)=>i===0||p.time!==sorted[i-1].time);
+    try{seriesRef.current.setData(deduped);chartRef.current.timeScale().fitContent();}catch(e){}
+  },[history,currentEquity]);
+  return <div ref={ref} style={{width:'100%',height:'100%',minHeight:100}}/>;
+}
 
-  const stocksRef    = useRef(stocks);
-  const portfolioRef = useRef(portfolio);
-  const cfgRef       = useRef(cfg);
-  const autoOnRef    = useRef(autoOn);
-  const cooldowns    = useRef({});
-  const wsRef        = useRef(null);
-  const logBuf       = useRef([]);
-  const livePrices   = useRef({});
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [stocks,setStocks]=useState(()=>SEEDS.map(s=>({...s})));
+  const [portfolio,setPortfolio]=useState({cash:INITIAL_EQUITY,positions:[],history:[]});
+  const [dataMode,setDataMode]=useState('idle');
+  const [autoOn,setAutoOn]=useState(false);
+  const [tab,setTab]=useState('chart');
+  const [mobileTab,setMobileTab]=useState('chart');
+  const [selectedSym,setSelectedSym]=useState('NVDA');
+  const [sysLog,setSysLog]=useState([]);
+  const [sigFilter,setSigFilter]=useState('ALL');
+  const [manualAmt,setManualAmt]=useState(2000);
+  const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
+  const [mktStatus,setMktStatus]=useState(getMarketStatus());
+  const [cfg,setCfg]=useState({maxPositions:5,riskPct:1.5,minStrength:66,minRR:1.3,trailMult:0.9,cooldownSec:40,maxHoldSec:360});
+  // Demo
+  const [demoState,setDemoState]=useState('idle');
+  const [demoSym,setDemoSym]=useState('NVDA');
+  const [demoMode,setDemoMode]=useState('replay');
+  const [demoProgress,setDemoProgress]=useState(0);
+  const [demoData,setDemoData]=useState([]);
 
-  stocksRef.current    = stocks;
-  portfolioRef.current = portfolio;
-  cfgRef.current       = cfg;
-  autoOnRef.current    = autoOn;
+  const stocksRef=useRef(stocks);const portfolioRef=useRef(portfolio);
+  const cfgRef=useRef(cfg);const autoOnRef=useRef(autoOn);
+  const cooldowns=useRef({});const wsRef=useRef(null);
+  const logBuf=useRef([]);const livePrices=useRef({});
+  const demoIdxRef=useRef(0);const demoDataRef=useRef([]);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!logBuf.current.length) return;
-      const b = [...logBuf.current]; logBuf.current = [];
-      setSysLog(p => [...b,...p].slice(0,120));
-    }, 600);
-    return () => clearInterval(id);
-  }, []);
+  stocksRef.current=stocks;portfolioRef.current=portfolio;
+  cfgRef.current=cfg;autoOnRef.current=autoOn;demoDataRef.current=demoData;
 
-  const addLog = useCallback((msg, type='info') => {
-    logBuf.current.push({ msg, type, t:new Date().toLocaleTimeString('en-GB',{hour12:false}) });
-  }, []);
+  useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
+  useEffect(()=>{const id=setInterval(()=>setMktStatus(getMarketStatus()),15000);return()=>clearInterval(id);},[]);
+  useEffect(()=>{
+    const id=setInterval(()=>{if(!logBuf.current.length)return;const b=[...logBuf.current];logBuf.current=[];setSysLog(p=>[...b,...p].slice(0,150));},600);
+    return()=>clearInterval(id);
+  },[]);
 
-  const processTick = useCallback((symbol, newPrice) => {
-    livePrices.current[symbol] = newPrice;
-    const prev = stocksRef.current.find(s => s.symbol === symbol);
-    if (!prev) return;
-    const sig = computeSignal(prev, newPrice);
-    const now = Date.now();
-    setStocks(p => p.map(s => s.symbol!==symbol?s:{
-      ...s,...sig,price:newPrice,changePercent:+pctOf(newPrice,s.price).toFixed(3),prevPrice:s.price,
-    }).sort((a,b)=>{const o={BUY:0,SELL:1,HOLD:2};return(o[a.signal]??2)-(o[b.signal]??2)||b.signalStrength-a.signalStrength}));
-    setPortfolio(prev => {
-      if (!prev.positions.some(p=>p.symbol===symbol)) return prev;
-      let cash = prev.cash;
-      const active=[], newHist=[];
-      prev.positions.forEach(pos => {
-        if (pos.symbol!==symbol){active.push(pos);return;}
-        const exit = evaluateExit(pos,newPrice,sig,cfgRef.current,now);
-        if (exit.close) {
-          const value=f2(pos.shares*newPrice), profit=f2(value-pos.shares*pos.entryPrice);
-          cash+=value; cooldowns.current[pos.symbol]=now;
+  const addLog=useCallback((msg,type='info')=>{logBuf.current.push({msg,type,t:new Date().toLocaleTimeString('en-GB',{hour12:false})});},[]);
+
+  const processTick=useCallback((symbol,newPrice)=>{
+    livePrices.current[symbol]=newPrice;
+    const prev=stocksRef.current.find(s=>s.symbol===symbol);if(!prev)return;
+    const sig=computeSignal(prev,newPrice);const now=Date.now();
+    setStocks(p=>p.map(s=>s.symbol!==symbol?s:{...s,...sig,price:newPrice,changePercent:+pctOf(newPrice,s.price).toFixed(3),prevPrice:s.price}).sort((a,b)=>{const o={BUY:0,SELL:1,HOLD:2};return(o[a.signal]??2)-(o[b.signal]??2)||b.signalStrength-a.signalStrength}));
+    setPortfolio(prev=>{
+      if(!prev.positions.some(p=>p.symbol===symbol))return prev;
+      let cash=prev.cash;const active=[],newHist=[];
+      prev.positions.forEach(pos=>{
+        if(pos.symbol!==symbol){active.push(pos);return;}
+        const exit=evaluateExit(pos,newPrice,sig,cfgRef.current,now);
+        if(exit.close){
+          const value=f2(pos.shares*newPrice),profit=f2(value-pos.shares*pos.entryPrice);
+          cash+=value;cooldowns.current[pos.symbol]=now;
           newHist.push({symbol:pos.symbol,type:exit.reason,entry:pos.entryPrice,exit:newPrice,profit,rr:pos.riskReward,held:Math.round((now-pos.enteredAt)/1000)+'s',t:new Date().toLocaleTimeString('en-GB',{hour12:false})});
-          addLog('['+exit.reason+'] '+pos.symbol+' @ '+usd(newPrice)+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
-        } else {
-          active.push({...pos,currentPrice:newPrice,hwm:exit.hwm,stopLoss:exit.newSL});
-        }
+          addLog('['+exit.reason+'] '+pos.symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
+        } else active.push({...pos,currentPrice:newPrice,hwm:exit.hwm,stopLoss:exit.newSL});
       });
       return{...prev,cash,positions:active,history:newHist.length?[...newHist,...prev.history]:prev.history};
     });
   },[addLog]);
 
-  const connectLive = useCallback(() => {
-    setDataMode('connecting');
-    addLog('[STREAM] Connecting...');
-    const protocol = window.location.protocol==='https:'?'wss:':'ws:';
-    const url = protocol+'//'+window.location.host+'/ws';
-    let timer = setTimeout(()=>{
-      addLog('[STREAM] No backend — simulation mode','warn');
-      setDataMode('sim'); wsRef.current?.close();
-    }, WS_TIMEOUT);
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    ws.onmessage = evt => {
-      let msg; try{msg=JSON.parse(evt.data);}catch{return;}
-      if (msg.type==='connected'){clearTimeout(timer);setDataMode('live');addLog('[LIVE] Connected · Alpaca IEX '+(msg.alpacaReady?'✓':'connecting...'),'trade');}
-      if (msg.type==='alpaca_connected') addLog('[ALPACA] Live · '+msg.symbols?.length+' symbols','trade');
-      if (msg.type==='alpaca_disconnected') addLog('[ALPACA] Disconnected','warn');
-      if (msg.type==='tick'&&msg.symbol&&msg.price) processTick(msg.symbol,msg.price);
+  // Demo
+  const startDemo=useCallback(async(sym,mode)=>{
+    setDemoState('loading');setDemoSym(sym);setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
+    addLog('[DEMO] Loading data for '+sym+'...','info');
+    let bars=[];
+    try{
+      const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+      const ys=yesterday.toISOString().split('T')[0];
+      const r=await fetch('/api/bars/'+sym+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+      const d=await r.json();
+      if(d.bars&&d.bars.length>0){bars=d.bars;addLog('[DEMO] '+bars.length+' real bars loaded','trade');}
+      else addLog('[DEMO] No data — synthetic day','warn');
+    }catch(e){addLog('[DEMO] API error — synthetic day','warn');}
+    const seed=SEEDS.find(s=>s.symbol===sym)||SEEDS[0];
+    const data=generateDemoDay(seed,bars);
+    setDemoData(data);setDemoState('running');
+    addLog('[DEMO] '+(mode==='fast'?'Fast-forward':'Tick replay')+' started','trade');
+  },[addLog]);
+
+  useEffect(()=>{
+    if(demoState!=='running')return;
+    const interval=demoMode==='fast'?60:350;
+    const id=setInterval(()=>{
+      const data=demoDataRef.current;
+      if(demoIdxRef.current>=data.length){setDemoState('done');addLog('[DEMO] Complete','info');clearInterval(id);return;}
+      const bar=data[demoIdxRef.current];
+      setDemoProgress(Math.round((demoIdxRef.current/data.length)*100));
+      processTick(demoSym,bar.c);
+      demoIdxRef.current++;
+    },interval);
+    return()=>clearInterval(id);
+  },[demoState,demoMode,demoSym,processTick,addLog]);
+
+  const connectLive=useCallback(()=>{
+    setDataMode('connecting');addLog('[STREAM] Connecting...');
+    const protocol=window.location.protocol==='https:'?'wss:':'ws:';
+    let timer=setTimeout(()=>{addLog('[STREAM] No backend — sim mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
+    const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
+    ws.onmessage=evt=>{
+      let msg;try{msg=JSON.parse(evt.data);}catch{return;}
+      if(msg.type==='connected'){clearTimeout(timer);setDataMode('live');addLog('[LIVE] Alpaca '+(msg.alpacaReady?'✓':'connecting...'),'trade');}
+      if(msg.type==='alpaca_connected')addLog('[ALPACA] '+msg.symbols?.length+' symbols','trade');
+      if(msg.type==='tick'&&msg.symbol&&msg.price)processTick(msg.symbol,msg.price);
     };
-    ws.onerror=()=>{clearTimeout(timer);addLog('[STREAM] Error — sim mode','warn');setDataMode('sim');};
-    ws.onclose=()=>{clearTimeout(timer);};
+    ws.onerror=()=>{clearTimeout(timer);addLog('[ERR] Sim mode','warn');setDataMode('sim');};
+    ws.onclose=()=>clearTimeout(timer);
   },[addLog,processTick]);
 
   useEffect(()=>{
     if(dataMode!=='sim')return;
-    addLog('[SIM] Simulation active');
     let idx=0;
-    const id=setInterval(()=>{
-      const s=stocksRef.current[idx%stocksRef.current.length];idx++;
-      const newPrice=Math.max(0.01,f2(s.price*(1+0.0001+s.vol*0.20*(Math.random()*2-1))));
-      processTick(s.symbol,newPrice);
-    },400);
+    const id=setInterval(()=>{const s=stocksRef.current[idx%stocksRef.current.length];idx++;processTick(s.symbol,Math.max(0.01,f2(s.price*(1+0.0001+s.vol*0.20*(Math.random()*2-1)))));},400);
     return()=>clearInterval(id);
-  },[dataMode,processTick,addLog]);
+  },[dataMode,processTick]);
 
   useEffect(()=>{
     if(dataMode==='idle'||dataMode==='connecting')return;
@@ -424,382 +391,432 @@ function App() {
       const c=cfgRef.current,port=portfolioRef.current;
       if(port.positions.length>=c.maxPositions)return;
       const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-      const held=new Set(port.positions.map(p=>p.symbol));
-      const now=Date.now();
-      const best=stocksRef.current.filter(s=>
-        s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&
-        s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(s.momentum??0)>-0.04&&
-        (!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)
-      ).sort((a,b)=>b.signalStrength-a.signalStrength)[0];
+      const held=new Set(port.positions.map(p=>p.symbol));const now=Date.now();
+      const best=stocksRef.current.filter(s=>s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(s.momentum??0)>-0.04&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)).sort((a,b)=>b.signalStrength-a.signalStrength)[0];
       if(!best)return;
-      const riskAmt=equity*(c.riskPct/100);
-      const stopDist=best.price-best.stopLoss;
+      const riskAmt=equity*(c.riskPct/100),stopDist=best.price-best.stopLoss;
       if(stopDist<=0)return;
-      const shares=f4(riskAmt/stopDist);
-      const tradeVal=f2(shares*best.price);
+      const shares=f4(riskAmt/stopDist),tradeVal=f2(shares*best.price);
       if(tradeVal>port.cash*0.92||tradeVal/equity>0.30)return;
-      setPortfolio(prev=>({...prev,cash:f2(prev.cash-tradeVal),positions:[...prev.positions,{
-        id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,
-        entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,
-        takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,
-        riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,
-        enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true,
-      }]}));
-      addLog('[AUTO] '+best.symbol+' '+shares+'sh @ '+usd(best.price),'trade');
+      setPortfolio(prev=>({...prev,cash:f2(prev.cash-tradeVal),positions:[...prev.positions,{id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true}]}));
+      addLog('[AUTO] '+best.symbol+' @ '+usd(best.price),'trade');
     },1200);
     return()=>clearInterval(id);
   },[dataMode,addLog]);
 
-  const manualTrade = s => {
+  const manualTrade=s=>{
     if(!s.stopLoss||!s.takeProfit){addLog('[SKIP] No SL/TP','warn');return;}
-    if(portfolio.cash<manualAmt){addLog('[SKIP] Not enough cash','warn');return;}
+    if(portfolio.cash<manualAmt){addLog('[SKIP] Low cash','warn');return;}
     const shares=f4(manualAmt/s.price);
-    setPortfolio(p=>({...p,cash:f2(p.cash-manualAmt),positions:[...p.positions,{
-      id:Math.random().toString(36).slice(2,9),symbol:s.symbol,shares,
-      entryPrice:s.price,currentPrice:s.price,stopLoss:s.stopLoss,takeProfit:s.takeProfit,
-      hwm:s.price,trailMult:cfg.trailMult,riskReward:s.riskReward,atr:s.atr,
-      strength:s.signalStrength,enteredAt:Date.now(),
-      t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:false,
-    }]}));
+    setPortfolio(p=>({...p,cash:f2(p.cash-manualAmt),positions:[...p.positions,{id:Math.random().toString(36).slice(2,9),symbol:s.symbol,shares,entryPrice:s.price,currentPrice:s.price,stopLoss:s.stopLoss,takeProfit:s.takeProfit,hwm:s.price,trailMult:cfg.trailMult,riskReward:s.riskReward,atr:s.atr,strength:s.signalStrength,enteredAt:Date.now(),t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:false}]}));
     addLog('[MANUAL] '+s.symbol+' @ '+usd(s.price),'trade');
-    setSelectedSym(s.symbol);
-    setTab('chart');
+    setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');
   };
 
-  const closeManual = id => {
+  const closeManual=id=>{
     setPortfolio(prev=>{
       const pos=prev.positions.find(p=>p.id===id);if(!pos)return prev;
       const value=f2(pos.shares*pos.currentPrice),profit=f2(value-pos.shares*pos.entryPrice);
       cooldowns.current[pos.symbol]=Date.now();
-      addLog('[EXIT] '+pos.symbol+' @ '+usd(pos.currentPrice)+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
-      return{...prev,cash:f2(prev.cash+value),positions:prev.positions.filter(p=>p.id!==id),
-        history:[{symbol:pos.symbol,type:'MANUAL_EXIT',entry:pos.entryPrice,exit:pos.currentPrice,profit,rr:pos.riskReward,held:Math.round((Date.now()-pos.enteredAt)/1000)+'s',t:new Date().toLocaleTimeString('en-GB',{hour12:false})},...prev.history]};
+      addLog('[EXIT] '+pos.symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
+      return{...prev,cash:f2(prev.cash+value),positions:prev.positions.filter(p=>p.id!==id),history:[{symbol:pos.symbol,type:'MANUAL_EXIT',entry:pos.entryPrice,exit:pos.currentPrice,profit,rr:pos.riskReward,held:Math.round((Date.now()-pos.enteredAt)/1000)+'s',t:new Date().toLocaleTimeString('en-GB',{hour12:false})},...prev.history]};
     });
   };
 
-  const isActive = dataMode==='live'||dataMode==='sim';
-  const posVal   = portfolio.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-  const equity   = portfolio.cash+posVal;
-  const totalRet = pctOf(equity,INITIAL_EQUITY);
-  const openPnl  = portfolio.positions.reduce((a,p)=>a+(p.currentPrice-p.entryPrice)*p.shares,0);
-  const closed   = portfolio.history;
-  const realPnl  = closed.reduce((a,t)=>a+t.profit,0);
-  const wins     = closed.filter(t=>t.profit>0).length;
-  const winRate  = closed.length?Math.round(wins/closed.length*100):null;
-  const buys     = stocks.filter(s=>s.signal==='BUY');
-  const visSt    = sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
-  const selectedStock = stocks.find(s=>s.symbol===selectedSym);
+  const posVal=portfolio.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
+  const equity=portfolio.cash+posVal;
+  const totalRet=pctOf(equity,INITIAL_EQUITY);
+  const openPnl=portfolio.positions.reduce((a,p)=>a+(p.currentPrice-p.entryPrice)*p.shares,0);
+  const closed=portfolio.history;
+  const realPnl=closed.reduce((a,t)=>a+t.profit,0);
+  const wins=closed.filter(t=>t.profit>0).length;
+  const winRate=closed.length?Math.round(wins/closed.length*100):null;
+  const buys=stocks.filter(s=>s.signal==='BUY');
+  const isActive=dataMode==='live'||dataMode==='sim';
+  const isDemoMode=demoState==='running'||demoState==='paused';
+  const modeColor=dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='connecting'?'#60a5fa':'#334155';
+  const riskAlerts=getRiskAlerts(portfolio,cfg,equity);
+  const visSt=sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
+  const mktCol=mktStatus.isOpen?'#22c55e':mktStatus.isPre||mktStatus.isAH?'#fbbf24':'#ef4444';
 
-  // Styles
-  const th = {padding:'5px 10px',textAlign:'left',fontSize:8,textTransform:'uppercase',letterSpacing:'0.1em',color:'#475569',fontWeight:700,borderBottom:'1px solid #0f0f14',whiteSpace:'nowrap'};
-  const td = {padding:'6px 10px',borderBottom:'1px solid #0a0a10',color:'#e2e8f0'};
-  const modeColor = dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='connecting'?'#60a5fa':'#334155';
+  const th={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #0a0a10',whiteSpace:'nowrap'};
+  const td={padding:'5px 8px',borderBottom:'1px solid #080810',color:'#e2e8f0',fontSize:10};
 
-  return (
-    <div style={{minHeight:'100vh',background:'#050507',color:'#e2e8f0',display:'flex',flexDirection:'column'}}>
+  // ── Analytics ────────────────────────────────────────────────────────────
+  const trades=closed;
+  const wns=trades.filter(t=>t.profit>0);
+  const lss=trades.filter(t=>t.profit<=0);
+  const avgWin=wns.length?wns.reduce((a,t)=>a+t.profit,0)/wns.length:0;
+  const avgLoss=lss.length?lss.reduce((a,t)=>a+t.profit,0)/lss.length:0;
+  const bestTrade=trades.length?Math.max(...trades.map(t=>t.profit)):0;
+  const worstTrade=trades.length?Math.min(...trades.map(t=>t.profit)):0;
+  const profitFactor=Math.abs(avgLoss)>0?Math.abs(avgWin/avgLoss):0;
+  const drawdown=pctOf(equity,INITIAL_EQUITY);
+  const byReason={};trades.forEach(t=>{byReason[t.type]=(byReason[t.type]||0)+1;});
 
-      {/* Header */}
-      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 16px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:modeColor,boxShadow:'0 0 8px '+modeColor}} className={isActive?'pulse':''}/>
-          <span style={{fontSize:14,fontWeight:700,letterSpacing:'0.15em',color:'#f1f5f9'}}>TREND_FOLLOWER_PRO</span>
-          <span style={{fontSize:9,color:modeColor,border:'1px solid '+modeColor+'44',padding:'2px 8px',fontWeight:700}}>
-            {dataMode==='live'?'◉ LIVE · ALPACA IEX':dataMode==='sim'?'◈ SIMULATION':dataMode==='connecting'?'◌ CONNECTING':'● OFFLINE'}
-          </span>
+  const stat=(l,v,c='#e2e8f0')=>(
+    <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px solid #0a0a10'}}>
+      <span style={{fontSize:8,color:'#475569'}}>{l}</span>
+      <span style={{fontSize:9,fontWeight:700,color:c}}>{v}</span>
+    </div>
+  );
+
+  // ── Demo Controls ─────────────────────────────────────────────────────────
+  const demoControls=(
+    <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+      <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>DEMO</span>
+      <select value={demoSym} onChange={e=>setDemoSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+        {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+      </select>
+      <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+        <option value="replay">Replay</option>
+        <option value="fast">Fast Fwd</option>
+      </select>
+      {(demoState==='idle'||demoState==='done')
+        ?<button onClick={()=>startDemo(demoSym,demoMode)} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #7c3aed',color:'#a78bfa',background:'transparent',cursor:'pointer'}}>▶ Start</button>
+        :<>
+          <button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'⏸':'▶'}</button>
+          <button onClick={()=>{setDemoState('idle');setDemoProgress(0);demoIdxRef.current=0;}} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>■</button>
+        </>
+      }
+      {demoState!=='idle'&&(
+        <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:60}}>
+          <div style={{flex:1,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:demoProgress+'%',background:'#a78bfa',borderRadius:2}}/></div>
+          <span style={{fontSize:7,color:'#7c3aed'}}>{demoProgress}%</span>
         </div>
-        <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-          {autoOn&&isActive&&<span style={{fontSize:9,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'2px 8px',fontWeight:700}}>⬡ AUTO ARMED</span>}
-          <button onClick={()=>{
-            if(dataMode==='idle'){setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;});}
-            else{setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;});}
-          }} style={{padding:'5px 12px',fontSize:9,fontWeight:700,textTransform:'uppercase',border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:'transparent',cursor:'pointer'}}>
-            {autoOn?'■ Disarm':'▶ Arm Engine'}
+      )}
+    </div>
+  );
+
+  // ── Panels ────────────────────────────────────────────────────────────────
+  const chartPanel=(
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      <div style={{display:'flex',gap:2,padding:'4px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
+        {SEEDS.map(s=>(
+          <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'66':'#0f0f18'),color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
+            {s.symbol}
           </button>
-          {dataMode==='idle'
-            ?<button onClick={()=>connectLive()} style={{padding:'5px 12px',fontSize:9,fontWeight:700,textTransform:'uppercase',border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c1000',cursor:'pointer'}}>⬡ Connect</button>
-            :<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disconnected');}} style={{padding:'5px 12px',fontSize:9,fontWeight:700,textTransform:'uppercase',border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disconnect</button>
-          }
-        </div>
-      </div>
-
-      {/* Market Status Bar */}
-      <MarketStatus/>
-
-      {/* KPIs */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#0a0a10',borderBottom:'1px solid #0f0f18'}}>
-        {[
-          {l:'TOTAL EQUITY',v:'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}),s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#22c55e':'#ef4444'},
-          {l:'OPEN P&L',v:pnlFmt(openPnl),s:portfolio.positions.length+' open',vc:openPnl>=0?'#22c55e':'#ef4444'},
-          {l:'REALISED P&L',v:pnlFmt(realPnl),s:closed.length+' trades',vc:realPnl>=0?'#22d3ee':'#ef4444'},
-          {l:'WIN RATE',v:winRate!=null?winRate+'%':'--',s:wins+'W · '+(closed.length-wins)+'L',vc:'#a78bfa'},
-          {l:'FREE CASH',v:'$'+portfolio.cash.toLocaleString('en-US',{maximumFractionDigits:0}),s:((portfolio.cash/equity)*100).toFixed(1)+'% of equity',vc:'#fbbf24'},
-          {l:'LIVE SIGNALS',v:buys.length+' BUY',s:'of 20 scanned',vc:'#facc15'},
-        ].map(({l,v,s,vc},i)=>(
-          <div key={i} style={{background:'#07070c',padding:'10px 14px'}}>
-            <div style={{fontSize:8,textTransform:'uppercase',letterSpacing:'0.12em',color:'#334155',marginBottom:4}}>{l}</div>
-            <div style={{fontSize:15,fontWeight:700,color:vc,fontFamily:'IBM Plex Mono'}}>{v}</div>
-            <div style={{fontSize:9,color:'#475569',marginTop:2}}>{s}</div>
-          </div>
         ))}
       </div>
+      <div style={{flexGrow:1,minHeight:0}}>
+        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoSym===selectedSym?demoData:[]} isDemoMode={isDemoMode&&demoSym===selectedSym}/>
+      </div>
+      {demoControls}
+    </div>
+  );
 
-      {/* Main Body */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:1,background:'#0a0a10',flexGrow:1,minHeight:0}}>
+  const screenerPanel=(
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      <div style={{display:'flex',gap:3,padding:'5px 8px',borderBottom:'1px solid #0f0f18',alignItems:'center',background:'#07070c'}}>
+        {['ALL','BUY','SELL','HOLD'].map(f=>(
+          <button key={f} onClick={()=>setSigFilter(f)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(sigFilter===f?(f==='BUY'?'#16a34a':f==='SELL'?'#991b1b':'#334155'):'#0f0f18'),color:sigFilter===f?(f==='BUY'?'#22c55e':f==='SELL'?'#ef4444':'#e2e8f0'):'#475569',background:'transparent',cursor:'pointer'}}>{f}</button>
+        ))}
+        {isActive&&<div style={{width:5,height:5,borderRadius:'50%',background:'#22c55e',marginLeft:'auto'}} className="pulse"/>}
+      </div>
+      <div style={{overflowY:'auto',flex:1}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead style={{position:'sticky',top:0,background:'#07070c',zIndex:10}}>
+            <tr>{['Sym','Price','Chg%','RSI','Trend','Signal','Str','Action'].map(h=><th key={h} style={th}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {visSt.map(s=>{
+              const held=portfolio.positions.some(p=>p.symbol===s.symbol);
+              const seed=SEEDS.find(sd=>sd.symbol===s.symbol);
+              return(
+                <tr key={s.symbol} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{s.symbol}</td>
+                  <td style={{...td,fontWeight:700}}>{usd(s.price)}</td>
+                  <td style={{...td,color:(s.changePercent??0)>=0?'#22c55e':'#ef4444',fontWeight:700}}>{(s.changePercent??0)>=0?'+':''}{(s.changePercent??0).toFixed(2)}%</td>
+                  <td style={td}>
+                    <div style={{display:'flex',alignItems:'center',gap:3}}>
+                      <div style={{width:28,height:4,background:'#111',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:(s.rsi??50)+'%',background:s.rsi<35?'#22c55e':s.rsi>68?'#ef4444':'#475569',borderRadius:2}}/></div>
+                      <span style={{fontSize:7,color:'#64748b'}}>{(s.rsi??50).toFixed(0)}</span>
+                    </div>
+                  </td>
+                  <td style={{...td,fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?'↑':s.downtrend?'↓':'–'}</td>
+                  <td style={td}><span style={{fontSize:8,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'1px 4px'}}>{s.signal||'HOLD'}</span></td>
+                  <td style={{...td,fontSize:8,color:'#64748b'}}>{(s.signalStrength??0).toFixed(0)}%</td>
+                  <td style={td}>{s.signal==='BUY'&&!held&&<button onClick={e=>{e.stopPropagation();manualTrade(s);}} style={{border:'1px solid #16a34a',color:'#22c55e',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>+Buy</button>}{held&&<span style={{fontSize:7,color:'#334155'}}>HELD</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
-        {/* Left - Chart + Screener */}
-        <div style={{display:'flex',flexDirection:'column',gap:1}}>
-
-          {/* Tab bar */}
-          <div style={{background:'#07070c',display:'flex',alignItems:'center',gap:0,borderBottom:'1px solid #0f0f18'}}>
-            {[['chart','📈 Chart'],['screener','⬡ Screener'],['positions','Positions ('+portfolio.positions.length+')'],['log','Exec Log ('+closed.length+')']].map(([t,l])=>(
-              <button key={t} onClick={()=>setTab(t)} style={{
-                padding:'8px 16px',fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',
-                borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',
-                color:tab===t?'#22d3ee':'#475569',background:'none',cursor:'pointer',border:'none',
-                borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',whiteSpace:'nowrap',
-              }}>{l}</button>
-            ))}
-            {tab==='chart'&&(
-              <div style={{marginLeft:'auto',display:'flex',gap:4,padding:'0 12px',flexWrap:'wrap'}}>
-                {SEEDS.map(s=>(
-                  <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)} style={{
-                    padding:'2px 7px',fontSize:8,fontWeight:700,
-                    border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'66':'#0f0f18'),
-                    color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',
-                    background:'transparent',cursor:'pointer'
-                  }}>{s.symbol}</button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Chart */}
-          {tab==='chart'&&(
-            <div style={{flexGrow:1,minHeight:400,background:'#060608'}}>
-              <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} dataMode={dataMode}/>
-            </div>
-          )}
-
-          {/* Screener */}
-          {tab==='screener'&&(
-            <div style={{flexGrow:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-              <div style={{display:'flex',gap:4,padding:'8px 12px',borderBottom:'1px solid #0f0f18',alignItems:'center'}}>
-                <span style={{fontSize:9,color:'#475569'}}>Filter:</span>
-                {['ALL','BUY','SELL','HOLD'].map(f=>(
-                  <button key={f} onClick={()=>setSigFilter(f)} style={{
-                    padding:'2px 9px',fontSize:8,fontWeight:700,
-                    border:'1px solid '+(sigFilter===f?(f==='BUY'?'#16a34a':f==='SELL'?'#991b1b':'#334155'):'#0f0f18'),
-                    color:sigFilter===f?(f==='BUY'?'#22c55e':f==='SELL'?'#ef4444':'#e2e8f0'):'#475569',
-                    background:'transparent',cursor:'pointer'
-                  }}>{f}</button>
-                ))}
-                {isActive&&<div style={{width:6,height:6,borderRadius:'50%',background:'#22c55e',marginLeft:'auto'}} className="pulse"/>}
-              </div>
-              <div style={{overflowY:'auto',flexGrow:1}}>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead style={{position:'sticky',top:0,background:'#07070c',zIndex:10}}>
-                    <tr>{['Sym','Tier','Price','Chg%','RSI','Trend','Signal','Strength','R:R','Action'].map(h=><th key={h} style={th}>{h}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {visSt.map(s=>{
-                      const held=portfolio.positions.some(p=>p.symbol===s.symbol);
-                      const seed=SEEDS.find(sd=>sd.symbol===s.symbol);
-                      return(
-                        <tr key={s.symbol} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(s.symbol);setTab('chart');}}>
-                          <td style={{...td,fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{s.symbol}</td>
-                          <td style={{...td,fontSize:8,color:'#475569'}}>{seed?.tier}</td>
-                          <td style={{...td,fontWeight:700,color:'#f1f5f9'}}>{usd(s.price)}</td>
-                          <td style={{...td,color:(s.changePercent??0)>=0?'#22c55e':'#ef4444',fontWeight:700}}>{(s.changePercent??0)>=0?'+':''}{(s.changePercent??0).toFixed(3)}%</td>
-                          <td style={td}>
-                            <div style={{display:'flex',alignItems:'center',gap:5}}>
-                              <div style={{width:40,height:5,background:'#111',borderRadius:2,overflow:'hidden'}}>
-                                <div style={{height:'100%',width:(s.rsi??50)+'%',background:s.rsi<35?'#22c55e':s.rsi>68?'#ef4444':'#475569',borderRadius:2}}/>
-                              </div>
-                              <span style={{fontSize:9,color:'#94a3b8'}}>{(s.rsi??50).toFixed(1)}</span>
-                            </div>
-                          </td>
-                          <td style={td}><span style={{fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?'↑ UP':s.downtrend?'↓ DWN':'FLAT'}</span></td>
-                          <td style={td}><span style={{fontSize:9,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'2px 6px'}}>{s.signal||'HOLD'}</span></td>
-                          <td style={td}>
-                            <div style={{display:'flex',alignItems:'center',gap:4}}>
-                              <div style={{width:50,height:5,background:'#111',borderRadius:2,overflow:'hidden'}}>
-                                <div style={{height:'100%',width:(s.signalStrength??0)+'%',background:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#1e293b',borderRadius:2,transition:'width 0.4s'}}/>
-                              </div>
-                              <span style={{fontSize:8,color:'#64748b'}}>{(s.signalStrength??0).toFixed(0)}%</span>
-                            </div>
-                          </td>
-                          <td style={{...td,color:'#64748b',fontSize:9}}>{s.riskReward?'1:'+s.riskReward:'--'}</td>
-                          <td style={td}>
-                            {s.signal==='BUY'&&!held&&<button onClick={e=>{e.stopPropagation();manualTrade(s);}} style={{border:'1px solid #16a34a',color:'#22c55e',padding:'2px 8px',fontSize:8,background:'transparent',cursor:'pointer'}}>+ Buy</button>}
-                            {held&&<span style={{fontSize:8,color:'#334155'}}>HELD</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Positions */}
-          {tab==='positions'&&(
-            <div style={{flexGrow:1,overflow:'auto'}}>
-              {portfolio.positions.length===0?(
-                <div style={{height:200,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'#1e293b',gap:8}}>
-                  <div style={{fontSize:32}}>⬡</div>
-                  <div style={{fontSize:9,textTransform:'uppercase',color:'#334155'}}>{autoOn?'Engine scanning...':'Arm engine or buy manually'}</div>
-                </div>
-              ):(
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead><tr>{['Symbol','Entry','Current','P&L','Stop Loss','Take Profit','Held',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {portfolio.positions.map(pos=>{
-                      const pl=(pos.currentPrice-pos.entryPrice)*pos.shares;
-                      const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
-                      return(
-                        <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');}}>
-                          <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:4}}>⬡</span>}{pos.symbol}</td>
-                          <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
-                          <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
-                          <td style={td}><div style={{fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</div></td>
-                          <td style={td}><span style={{color:'#ef4444',fontWeight:700}}>{usd(pos.stopLoss)}</span></td>
-                          <td style={td}><span style={{color:'#22c55e',fontWeight:700}}>{usd(pos.takeProfit)}</span></td>
-                          <td style={{...td,color:'#475569',fontSize:9}}>{heldS}s</td>
-                          <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{border:'1px solid #991b1b',color:'#ef4444',padding:'2px 8px',fontSize:8,background:'transparent',cursor:'pointer'}}>✕ Exit</button></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-          {/* Exec Log */}
-          {tab==='log'&&(
-            <div style={{flexGrow:1,overflow:'auto'}}>
-              {closed.length===0?(
-                <div style={{height:200,display:'flex',alignItems:'center',justifyContent:'center',color:'#334155',fontSize:9,textTransform:'uppercase'}}>No closed trades yet</div>
-              ):(
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead><tr>{['Time','Sym','Reason','Entry','Exit','P&L','R:R','Held'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {closed.map((t,i)=>(
-                      <tr key={i}>
-                        <td style={{...td,color:'#334155',fontSize:9}}>{t.t}</td>
-                        <td style={{...td,fontWeight:700,color:'#22d3ee'}}>{t.symbol}</td>
-                        <td style={td}><span style={{fontSize:8,padding:'2px 6px',border:'1px solid '+(t.type==='TAKE_PROFIT'?'#16a34a':t.type==='STOP_LOSS'?'#991b1b':'#334155'),color:t.type==='TAKE_PROFIT'?'#22c55e':t.type==='STOP_LOSS'?'#ef4444':'#94a3b8'}}>{t.type.replace(/_/g,' ')}</span></td>
-                        <td style={{...td,color:'#64748b'}}>{usd(t.entry)}</td>
-                        <td style={{...td,color:'#94a3b8'}}>{usd(t.exit)}</td>
-                        <td style={{...td,fontWeight:700,color:t.profit>=0?'#22c55e':'#ef4444'}}>{pnlFmt(t.profit)}</td>
-                        <td style={{...td,color:'#475569',fontSize:9}}>{t.rr?'1:'+t.rr:'--'}</td>
-                        <td style={{...td,color:'#475569',fontSize:9}}>{t.held}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
+  const positionsPanel=(
+    <div style={{overflowY:'auto',height:'100%'}}>
+      {portfolio.positions.length===0?(
+        <div style={{height:130,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'#1e293b',gap:5}}>
+          <div style={{fontSize:24}}>⬡</div>
+          <div style={{fontSize:8,color:'#334155',textTransform:'uppercase'}}>{autoOn?'Scanning...':'Arm engine or buy manually'}</div>
         </div>
+      ):(
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>{['Sym','Entry','Now','P&L','SL','TP','Held',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {portfolio.positions.map(pos=>{
+              const pl=(pos.currentPrice-pos.entryPrice)*pos.shares;
+              const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
+              return(
+                <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>⬡</span>}{pos.symbol}</td>
+                  <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
+                  <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
+                  <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</td>
+                  <td style={{...td,color:'#ef4444',fontSize:9}}>{usd(pos.stopLoss)}</td>
+                  <td style={{...td,color:'#22c55e',fontSize:9}}>{usd(pos.takeProfit)}</td>
+                  <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{border:'1px solid #991b1b',color:'#ef4444',padding:'1px 4px',fontSize:7,background:'transparent',cursor:'pointer'}}>✕</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 
-        {/* Right Sidebar */}
-        <div style={{display:'flex',flexDirection:'column',gap:1,background:'#07070c'}}>
-
-          {/* Auto Engine Config */}
-          <div style={{padding:12,borderBottom:'1px solid #0f0f18'}}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-              <span style={{fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:autoOn?'#a78bfa':'#475569'}}>⬡ Auto Engine</span>
-              <span style={{fontSize:8,padding:'2px 8px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700}}>{autoOn?'ARMED':'STANDBY'}</span>
-            </div>
-            {[
-              {k:'maxPositions',l:'Max Positions',  min:1, max:10,step:1,  sfx:''},
-              {k:'riskPct',     l:'Risk / Trade',   min:0.5,max:5,step:0.5,sfx:'%'},
-              {k:'minStrength', l:'Min Strength',   min:50,max:95,step:1,  sfx:'%'},
-              {k:'minRR',       l:'Min R:R',        min:1, max:4, step:0.1,sfx:'×'},
-              {k:'trailMult',   l:'Trail ATR',      min:0.4,max:3,step:0.1,sfx:'×'},
-              {k:'cooldownSec', l:'Cooldown',       min:10,max:300,step:5, sfx:'s'},
-              {k:'maxHoldSec',  l:'Max Hold',       min:60,max:900,step:30,sfx:'s'},
-            ].map(({k,l,min,max,step,sfx})=>(
-              <div key={k} style={{marginBottom:8}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:9,marginBottom:3}}>
-                  <span style={{color:'#475569'}}>{l}</span>
-                  <span style={{fontWeight:700,color:autoOn?'#334155':'#e2e8f0'}}>{cfg[k]}{sfx}</span>
+  const analyticsPanel=(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      <div style={{padding:'5px 10px',fontSize:8,fontWeight:700,color:'#22c55e',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>P&L Equity Curve</div>
+      <div style={{height:140,flexShrink:0}}><EquityCurve history={portfolio.history} currentEquity={equity}/></div>
+      <div style={{overflowY:'auto',flex:1,padding:'8px 10px',display:'flex',flexDirection:'column',gap:2}}>
+        <div style={{fontSize:8,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Performance Stats</div>
+        {stat('Total Trades',trades.length)}
+        {stat('Win Rate',(winRate??0)+'%',(winRate??0)>=50?'#22c55e':'#ef4444')}
+        {stat('Profit Factor',profitFactor.toFixed(2),profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444')}
+        {stat('Total P&L',pnlFmt(realPnl),realPnl>=0?'#22c55e':'#ef4444')}
+        {stat('Avg Win',pnlFmt(avgWin),'#22c55e')}
+        {stat('Avg Loss',pnlFmt(avgLoss),'#ef4444')}
+        {stat('Best Trade',pnlFmt(bestTrade),'#22c55e')}
+        {stat('Worst Trade',pnlFmt(worstTrade),'#ef4444')}
+        {stat('Drawdown',(drawdown>=0?'+':'')+drawdown.toFixed(2)+'%',drawdown>=0?'#22c55e':drawdown>-5?'#fbbf24':'#ef4444')}
+        {trades.length>0&&(
+          <>
+            <div style={{fontSize:8,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:8,marginBottom:2}}>Exit Breakdown</div>
+            {Object.entries(byReason).map(([k,v])=>(
+              <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'2px 0',borderBottom:'1px solid #0a0a10'}}>
+                <span style={{fontSize:7,color:'#334155'}}>{k.replace(/_/g,' ')}</span>
+                <div style={{display:'flex',alignItems:'center',gap:5}}>
+                  <div style={{width:36,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:Math.round((v/trades.length)*100)+'%',background:'#22d3ee',borderRadius:2}}/></div>
+                  <span style={{fontSize:7,color:'#64748b'}}>{v}</span>
                 </div>
-                <input type="range" min={min} max={max} step={step} value={cfg[k]} disabled={autoOn}
-                  onChange={e=>setCfg(p=>({...p,[k]:Number(e.target.value)}))}
-                  style={{width:'100%',height:3}}/>
               </div>
             ))}
-            <div style={{marginTop:8}}>
-              <div style={{fontSize:9,color:'#475569',marginBottom:4}}>Manual trade amount:</div>
-              <input type="number" value={manualAmt} onChange={e=>setManualAmt(Number(e.target.value))}
-                style={{width:'100%',background:'#0a0a10',border:'1px solid #1e293b',color:'#fbbf24',padding:'4px 8px',fontSize:11,fontFamily:'IBM Plex Mono'}} min="100"/>
-            </div>
-          </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
-          {/* Top Buy Signals */}
-          <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            <div style={{padding:'8px 12px',borderBottom:'1px solid #0f0f18',fontSize:9,fontWeight:700,color:'#ca8a04',textTransform:'uppercase',letterSpacing:'0.1em'}}>⬡ Top Buy Signals</div>
-            <div style={{overflowY:'auto',flex:1,padding:8,display:'flex',flexDirection:'column',gap:6}}>
-              {!isActive&&<div style={{color:'#1e293b',fontSize:8,textTransform:'uppercase',textAlign:'center',padding:20}}>Connect stream to begin</div>}
-              {isActive&&buys.length===0&&<div style={{color:'#1e293b',fontSize:8,textTransform:'uppercase',textAlign:'center',padding:20}}>Scanning...</div>}
-              {isActive&&buys.slice(0,8).map(s=>{
-                const held=portfolio.positions.some(p=>p.symbol===s.symbol);
-                const qual=s.signalStrength>=cfg.minStrength&&(s.riskReward||0)>=cfg.minRR;
-                return(
-                  <div key={s.symbol} style={{border:'1px solid '+(held?'#1e293b':qual?'#16a34a44':'#1e293b'),padding:8,opacity:held?0.5:1,cursor:'pointer'}}
-                    onClick={()=>{setSelectedSym(s.symbol);setTab('chart');}}>
-                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                      <div style={{display:'flex',alignItems:'center',gap:6}}>
-                        <span style={{fontSize:8,padding:'1px 5px',border:'1px solid #16a34a',color:'#22c55e',fontWeight:700}}>BUY</span>
-                        <span style={{fontWeight:700,color:TIER_COLOR[SEEDS.find(sd=>sd.symbol===s.symbol)?.tier]||'#22d3ee'}}>{s.symbol}</span>
-                        {qual&&<span style={{fontSize:7,color:'#22c55e'}}>AUTO✓</span>}
-                      </div>
-                      <span style={{fontWeight:700,color:'#22c55e',fontSize:11}}>{usd(s.price)}</span>
-                    </div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4,marginBottom:4}}>
-                      <div style={{background:'#0a0a10',border:'1px solid #7f1d1d22',padding:'3px 6px'}}>
-                        <div style={{fontSize:7,color:'#334155'}}>STOP</div>
-                        <div style={{color:'#ef4444',fontWeight:700,fontSize:10}}>{usd(s.stopLoss)}</div>
-                      </div>
-                      <div style={{background:'#0a0a10',border:'1px solid #16a34a22',padding:'3px 6px'}}>
-                        <div style={{fontSize:7,color:'#334155'}}>TARGET</div>
-                        <div style={{color:'#22c55e',fontWeight:700,fontSize:10}}>{usd(s.takeProfit)}</div>
-                      </div>
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                      <div style={{flex:1,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
-                        <div style={{height:'100%',width:s.signalStrength+'%',background:'#22c55e',borderRadius:2,transition:'width 0.4s'}}/>
-                      </div>
-                      <span style={{fontSize:8,color:'#22c55e',fontWeight:700}}>{s.signalStrength.toFixed(0)}%</span>
-                      <span style={{fontSize:8,color:'#334155'}}>1:{s.riskReward}</span>
-                    </div>
-                    <button onClick={e=>{e.stopPropagation();!held&&manualTrade(s);}} disabled={held} style={{width:'100%',padding:'4px',fontSize:8,fontWeight:700,border:'1px solid '+(held?'#1e293b':'#16a34a'),color:held?'#334155':'#22c55e',background:'transparent',cursor:held?'not-allowed':'pointer'}}>
-                      {held?'Already Open':'Execute Manual'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+  const logPanel=(
+    <div style={{overflowY:'auto',height:'100%'}}>
+      {closed.length===0?(
+        <div style={{height:100,display:'flex',alignItems:'center',justifyContent:'center',color:'#334155',fontSize:8,textTransform:'uppercase'}}>No closed trades yet</div>
+      ):(
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>{['Time','Sym','Reason','Entry','Exit','P&L','Held'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {closed.map((t,i)=>(
+              <tr key={i}>
+                <td style={{...td,color:'#334155',fontSize:8}}>{t.t}</td>
+                <td style={{...td,fontWeight:700,color:'#22d3ee'}}>{t.symbol}</td>
+                <td style={td}><span style={{fontSize:7,padding:'1px 4px',border:'1px solid '+(t.type==='TAKE_PROFIT'?'#16a34a':t.type.includes('STOP')?'#991b1b':'#334155'),color:t.type==='TAKE_PROFIT'?'#22c55e':t.type.includes('STOP')?'#ef4444':'#94a3b8'}}>{t.type.replace(/_/g,' ')}</span></td>
+                <td style={{...td,color:'#64748b'}}>{usd(t.entry)}</td>
+                <td style={{...td,color:'#94a3b8'}}>{usd(t.exit)}</td>
+                <td style={{...td,fontWeight:700,color:t.profit>=0?'#22c55e':'#ef4444'}}>{pnlFmt(t.profit)}</td>
+                <td style={{...td,color:'#475569',fontSize:8}}>{t.held}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 
-          {/* System Log */}
-          <div style={{maxHeight:160,display:'flex',flexDirection:'column',borderTop:'1px solid #0f0f18'}}>
-            <div style={{padding:'5px 12px',fontSize:8,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.1em'}}>System Log</div>
-            <div style={{overflowY:'auto',flex:1,padding:'4px 8px',display:'flex',flexDirection:'column',gap:1}}>
-              {sysLog.length===0&&<div style={{color:'#1e293b',fontSize:8,padding:4}}>Awaiting events...</div>}
-              {sysLog.map((e,i)=>(
-                <div key={i} style={{display:'flex',gap:6,fontSize:8,lineHeight:1.7,color:e.type==='trade'?'#0891b2':e.type==='profit'?'#16a34a':e.type==='loss'?'#991b1b':e.type==='warn'?'#92400e':'#334155'}}>
-                  <span style={{color:'#1e293b',flexShrink:0}}>{e.t}</span>
-                  <span style={{wordBreak:'break-all',color:e.type==='trade'?'#22d3ee':e.type==='profit'?'#22c55e':e.type==='loss'?'#ef4444':e.type==='warn'?'#f59e0b':'#64748b'}}>{e.msg}</span>
-                </div>
-              ))}
+  const sidebarContent=(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
+      <div style={{padding:'10px 10px',borderBottom:'1px solid #0f0f18'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+          <span style={{fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:autoOn?'#a78bfa':'#475569'}}>⬡ Auto Engine</span>
+          <span style={{fontSize:7,padding:'2px 6px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700}}>{autoOn?'ARMED':'STANDBY'}</span>
+        </div>
+        {[
+          {k:'maxPositions',l:'Max Pos',min:1,max:10,step:1,sfx:''},
+          {k:'riskPct',l:'Risk/Trade',min:0.5,max:5,step:0.5,sfx:'%'},
+          {k:'minStrength',l:'Min Sig',min:50,max:95,step:1,sfx:'%'},
+          {k:'minRR',l:'Min R:R',min:1,max:4,step:0.1,sfx:'×'},
+          {k:'trailMult',l:'Trail ATR',min:0.4,max:3,step:0.1,sfx:'×'},
+          {k:'cooldownSec',l:'Cooldown',min:10,max:300,step:5,sfx:'s'},
+          {k:'maxHoldSec',l:'Max Hold',min:60,max:900,step:30,sfx:'s'},
+        ].map(({k,l,min,max,step,sfx})=>(
+          <div key={k} style={{marginBottom:6}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:8,marginBottom:2}}>
+              <span style={{color:'#475569'}}>{l}</span>
+              <span style={{fontWeight:700,color:autoOn?'#334155':'#e2e8f0'}}>{cfg[k]}{sfx}</span>
             </div>
+            <input type="range" min={min} max={max} step={step} value={cfg[k]} disabled={autoOn} onChange={e=>setCfg(p=>({...p,[k]:Number(e.target.value)}))} style={{height:3}}/>
           </div>
+        ))}
+        <div style={{marginTop:6}}>
+          <div style={{fontSize:7,color:'#475569',marginBottom:2}}>Manual $</div>
+          <input type="number" value={manualAmt} onChange={e=>setManualAmt(Number(e.target.value))} style={{width:'100%',background:'#0a0a10',border:'1px solid #1e293b',color:'#fbbf24',padding:'3px 7px',fontSize:10}} min="100"/>
         </div>
       </div>
+      <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
+        <div style={{padding:'5px 10px',fontSize:7,fontWeight:700,color:'#ca8a04',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18'}}>⬡ Top Signals</div>
+        <div style={{overflowY:'auto',flex:1,padding:5,display:'flex',flexDirection:'column',gap:4}}>
+          {!isActive&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}}>Connect to begin</div>}
+          {isActive&&buys.length===0&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}} className="pulse">Scanning...</div>}
+          {isActive&&buys.slice(0,5).map(s=>{
+            const held=portfolio.positions.some(p=>p.symbol===s.symbol);
+            const qual=s.signalStrength>=cfg.minStrength&&(s.riskReward||0)>=cfg.minRR;
+            return(
+              <div key={s.symbol} style={{border:'1px solid '+(held?'#1e293b':qual?'#16a34a33':'#1e293b'),padding:6,opacity:held?0.4:1,cursor:'pointer'}} onClick={()=>{setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:3}}>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:6,padding:'1px 3px',border:'1px solid #16a34a',color:'#22c55e',fontWeight:700}}>BUY</span>
+                    <span style={{fontWeight:700,color:TIER_COLOR[SEEDS.find(sd=>sd.symbol===s.symbol)?.tier]||'#22d3ee',fontSize:10}}>{s.symbol}</span>
+                    {qual&&<span style={{fontSize:6,color:'#22c55e'}}>AUTO✓</span>}
+                  </div>
+                  <span style={{fontWeight:700,color:'#22c55e',fontSize:9}}>{usd(s.price)}</span>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:2,marginBottom:3}}>
+                  <div style={{background:'#0a0a10',padding:'2px 4px'}}><div style={{fontSize:6,color:'#334155'}}>SL</div><div style={{color:'#ef4444',fontWeight:700,fontSize:8}}>{usd(s.stopLoss)}</div></div>
+                  <div style={{background:'#0a0a10',padding:'2px 4px'}}><div style={{fontSize:6,color:'#334155'}}>TP</div><div style={{color:'#22c55e',fontWeight:700,fontSize:8}}>{usd(s.takeProfit)}</div></div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:3}}>
+                  <div style={{flex:1,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:s.signalStrength+'%',background:'#22c55e',borderRadius:2,transition:'width 0.3s'}}/></div>
+                  <span style={{fontSize:7,color:'#22c55e',fontWeight:700}}>{s.signalStrength.toFixed(0)}%</span>
+                  <span style={{fontSize:7,color:'#334155'}}>1:{s.riskReward}</span>
+                </div>
+                <button onClick={e=>{e.stopPropagation();!held&&manualTrade(s);}} disabled={held} style={{width:'100%',padding:'2px',fontSize:7,fontWeight:700,border:'1px solid '+(held?'#1e293b':'#16a34a'),color:held?'#334155':'#22c55e',background:'transparent',cursor:held?'not-allowed':'pointer'}}>
+                  {held?'Open':'Execute'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{maxHeight:120,display:'flex',flexDirection:'column',borderTop:'1px solid #0f0f18'}}>
+        <div style={{padding:'3px 10px',fontSize:7,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>System Log</div>
+        <div style={{overflowY:'auto',flex:1,padding:'2px 8px',display:'flex',flexDirection:'column',gap:1}}>
+          {sysLog.length===0&&<div style={{color:'#1e293b',fontSize:7,padding:2}}>Awaiting...</div>}
+          {sysLog.map((e,i)=>(
+            <div key={i} style={{display:'flex',gap:4,fontSize:7,lineHeight:1.6}}>
+              <span style={{color:'#1e293b',flexShrink:0}}>{e.t}</span>
+              <span style={{wordBreak:'break-all',color:e.type==='trade'?'#22d3ee':e.type==='profit'?'#22c55e':e.type==='loss'?'#ef4444':e.type==='warn'?'#f59e0b':'#475569'}}>{e.msg}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const activeTab=isMobile?mobileTab:tab;
+  const setActiveTab=isMobile?setMobileTab:setTab;
+
+  return(
+    <div style={{minHeight:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'6px 10px',display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:7}}>
+          <div style={{width:7,height:7,borderRadius:'50%',background:modeColor,boxShadow:'0 0 5px '+modeColor}} className={isActive?'pulse':''}/>
+          <span style={{fontSize:12,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
+          <span style={{fontSize:7,color:modeColor,border:'1px solid '+modeColor+'44',padding:'1px 5px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='connecting'?'...':'OFF'}</span>
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            <div style={{width:5,height:5,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
+            <span style={{fontSize:7,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
+            <span style={{fontSize:7,color:'#334155'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
+            <span style={{fontSize:7,color:'#1e293b'}}>· {mktStatus.next}</span>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
+          <span style={{fontSize:11,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+          <span style={{fontSize:8,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
+          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:7,color:'#ef4444',border:'1px solid #ef444444',padding:'1px 4px'}}>⚠ {riskAlerts.filter(a=>a.level==='danger').length}</span>}
+          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:'transparent',cursor:'pointer'}}>{autoOn?'■ Disarm':'▶ Arm'}</button>
+          {dataMode==='idle'?<button onClick={connectLive} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'transparent',cursor:'pointer'}}>Connect</button>:<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disc.');}} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disc.</button>}
+        </div>
+      </div>
+
+      {/* Risk Alerts */}
+      {riskAlerts.length>0&&(
+        <div style={{padding:'3px 10px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
+          {riskAlerts.map((a,i)=>(
+            <span key={i} style={{fontSize:8,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'1px 6px'}}>
+              {a.level==='danger'?'🔴':a.level==='warn'?'🟡':'🔵'} {a.msg}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* KPI bar - hide on mobile */}
+      {!isMobile&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#0a0a10',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+          {[
+            {l:'EQUITY',v:'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}),s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#22c55e':'#ef4444'},
+            {l:'OPEN P&L',v:pnlFmt(openPnl),s:portfolio.positions.length+' open',vc:openPnl>=0?'#22c55e':'#ef4444'},
+            {l:'REALISED',v:pnlFmt(realPnl),s:closed.length+' trades',vc:realPnl>=0?'#22d3ee':'#ef4444'},
+            {l:'WIN RATE',v:winRate!=null?winRate+'%':'--',s:wins+'W '+(closed.length-wins)+'L',vc:'#a78bfa'},
+            {l:'CASH',v:'$'+portfolio.cash.toLocaleString('en-US',{maximumFractionDigits:0}),s:((portfolio.cash/equity)*100).toFixed(0)+'%',vc:'#fbbf24'},
+            {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#facc15'},
+          ].map(({l,v,s,vc},i)=>(
+            <div key={i} style={{background:'#07070c',padding:'7px 10px'}}>
+              <div style={{fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',marginBottom:2}}>{l}</div>
+              <div style={{fontSize:12,fontWeight:700,color:vc}}>{v}</div>
+              <div style={{fontSize:8,color:'#475569',marginTop:1}}>{s}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Main body */}
+      {isMobile?(
+        <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+          <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
+            {mobileTab==='chart'&&chartPanel}
+            {mobileTab==='screener'&&screenerPanel}
+            {mobileTab==='positions'&&positionsPanel}
+            {mobileTab==='analytics'&&analyticsPanel}
+            {mobileTab==='engine'&&sidebarContent}
+            {mobileTab==='log'&&logPanel}
+          </div>
+          <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18'}}>
+            {[['chart','📈','Chart'],['screener','⬡','Scan'],['positions','💼','Pos'],['analytics','📊','Stats'],['engine','⚙️','Engine'],['log','📋','Log']].map(([t,icon,label])=>(
+              <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,background:'none',border:'none',cursor:'pointer',padding:'5px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
+                <span style={{fontSize:13}}>{icon}</span>
+                <span style={{fontSize:6,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ):(
+        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 260px',gap:1,background:'#0a0a10',minHeight:0,overflow:'hidden'}}>
+          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+            <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')']].map(([t,l])=>(
+                <button key={t} onClick={()=>setTab(t)} style={{padding:'6px 12px',fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',color:tab===t?'#22d3ee':'#475569',background:'none',cursor:'pointer',border:'none',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',whiteSpace:'nowrap'}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
+              {tab==='chart'&&chartPanel}
+              {tab==='screener'&&screenerPanel}
+              {tab==='positions'&&positionsPanel}
+              {tab==='analytics'&&analyticsPanel}
+              {tab==='log'&&logPanel}
+            </div>
+          </div>
+          <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
+            {sidebarContent}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
