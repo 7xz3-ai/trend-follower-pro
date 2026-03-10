@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 const WebSocket = require('ws');
 const { WebSocketServer } = require('ws');
@@ -19,29 +20,22 @@ const alpaca = { ws:null, ready:false, reconnMs:1000, timer:null, lastTick:new M
 
 function connectAlpaca() {
   if (alpaca.timer) { clearTimeout(alpaca.timer); alpaca.timer = null; }
-  if (!API_KEY || !API_SECRET) {
-    console.log('No Alpaca keys found - running without live data');
-    return;
-  }
+  if (!API_KEY || !API_SECRET) { console.log('No Alpaca keys — live data disabled'); return; }
   console.log('Connecting to Alpaca...');
   const ws = new WebSocket('wss://stream.data.alpaca.markets/v2/iex');
   alpaca.ws = ws;
-
   ws.on('open', () => {
-    console.log('Alpaca open - authenticating');
+    console.log('Alpaca open — authenticating');
     ws.send(JSON.stringify({ action:'auth', key:API_KEY, secret:API_SECRET }));
   });
-
   ws.on('message', (raw) => {
     let msgs;
-    try { msgs = JSON.parse(raw); if (!Array.isArray(msgs)) msgs = [msgs]; }
-    catch(e) { return; }
+    try { msgs = JSON.parse(raw); if (!Array.isArray(msgs)) msgs = [msgs]; } catch(e) { return; }
     msgs.forEach(msg => {
       if (msg.T === 'success' && msg.msg === 'authenticated') {
-        console.log('Alpaca authenticated - subscribing to', SYMBOLS.length, 'symbols');
+        console.log('Alpaca authenticated — subscribing to', SYMBOLS.length, 'symbols');
         ws.send(JSON.stringify({ action:'subscribe', trades:SYMBOLS, quotes:[], bars:[] }));
-        alpaca.ready = true;
-        alpaca.reconnMs = 1000;
+        alpaca.ready = true; alpaca.reconnMs = 1000;
         broadcast({ type:'alpaca_connected', symbols:SYMBOLS });
       }
       if (msg.T === 'subscription') console.log('Subscription confirmed');
@@ -54,18 +48,13 @@ function connectAlpaca() {
       }
     });
   });
-
   ws.on('close', (code) => {
     alpaca.ready = false;
-    console.log('Alpaca closed:', code, '- reconnecting in', alpaca.reconnMs, 'ms');
+    console.log('Alpaca closed:', code, '— reconnecting in', alpaca.reconnMs, 'ms');
     const delay = alpaca.reconnMs;
-    alpaca.timer = setTimeout(() => {
-      alpaca.reconnMs = Math.min(delay * 2, 60000);
-      connectAlpaca();
-    }, delay);
+    alpaca.timer = setTimeout(() => { alpaca.reconnMs = Math.min(delay*2,60000); connectAlpaca(); }, delay);
   });
-
-  ws.on('error', (err) => console.log('Alpaca error:', err.message));
+  ws.on('error', (err) => console.log('Alpaca WS error:', err.message));
 }
 
 const clients = new Map();
@@ -74,53 +63,57 @@ let cid = 1;
 function broadcast(data) {
   const p = JSON.stringify(data);
   clients.forEach((meta, ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(p); } catch(e) {}
-    }
+    if (ws.readyState === WebSocket.OPEN) try { ws.send(p); } catch(e) {}
   });
 }
 
 const app = express();
 const server = http.createServer(app);
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  next();
-});
-
-// Serve static files from public folder
+app.use((req, res, next) => { res.setHeader('Access-Control-Allow-Origin', '*'); next(); });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API routes
 app.get('/health', (req, res) => res.json({ ok:true }));
 app.get('/status', (req, res) => res.json({ alpaca:alpaca.ready, clients:clients.size }));
 
-// Catch-all - serve index.html for any route not matched above
+// Historical bars proxy — fetches from Alpaca REST API
+app.get('/api/bars/:symbol', (req, res) => {
+  const { symbol } = req.params;
+  const { timeframe = '5Min', limit = '300' } = req.query;
+  if (!API_KEY || !API_SECRET) return res.status(401).json({ error:'No API keys' });
+  const apiPath = '/v2/stocks/' + encodeURIComponent(symbol) + '/bars?timeframe=' + timeframe + '&limit=' + limit + '&adjustment=raw&feed=iex';
+  const options = {
+    hostname: 'data.alpaca.markets',
+    path: apiPath,
+    method: 'GET',
+    headers: { 'APCA-API-KEY-ID': API_KEY, 'APCA-API-SECRET-KEY': API_SECRET, 'Accept': 'application/json' }
+  };
+  const request = https.request(options, (response) => {
+    let data = '';
+    response.on('data', chunk => { data += chunk; });
+    response.on('end', () => {
+      try { res.json(JSON.parse(data)); }
+      catch(e) { res.status(500).json({ error:'Parse error' }); }
+    });
+  });
+  request.on('error', (e) => res.status(500).json({ error: e.message }));
+  request.setTimeout(15000, () => { request.destroy(); res.status(408).json({ error:'Timeout' }); });
+  request.end();
+});
+
 app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'public', 'index.html');
-  console.log('Serving index.html from:', indexPath);
-  res.sendFile(indexPath);
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const wss = new WebSocketServer({ server, path:'/ws' });
-
 wss.on('connection', (ws) => {
   const id = cid++;
   clients.set(ws, { id });
   console.log('Client', id, 'connected. Total:', clients.size);
-
-  ws.send(JSON.stringify({
-    type:'connected', clientId:id, symbols:SYMBOLS,
-    alpacaReady:alpaca.ready, ts:new Date().toISOString()
-  }));
-
+  ws.send(JSON.stringify({ type:'connected', clientId:id, symbols:SYMBOLS, alpacaReady:alpaca.ready, ts:new Date().toISOString() }));
   ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.action === 'ping') ws.send(JSON.stringify({ type:'pong' }));
-    } catch(e) {}
+    try { const msg = JSON.parse(raw); if (msg.action === 'ping') ws.send(JSON.stringify({ type:'pong' })); } catch(e) {}
   });
-
   ws.on('close', () => { clients.delete(ws); console.log('Client', id, 'disconnected'); });
   ws.on('error', () => clients.delete(ws));
 });
