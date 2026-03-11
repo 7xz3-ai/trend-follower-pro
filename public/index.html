@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -336,7 +337,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch bars for selected symbol
   const fetchBars=useCallback(()=>{
     setLoading(true);setErr(null);
-    fetch(\`/api/history/\${sym}?timeframe=\${tf}&days=\${days}\`)
+    fetch(`/api/history/${sym}?timeframe=${tf}&days=${days}`)
       .then(r=>r.json())
       .then(data=>{
         if(data.error)throw new Error(data.error);
@@ -355,7 +356,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch snapshot for all symbols (heatmap view)
   const fetchSnapshot=useCallback(()=>{
     setSnapshotLoading(true);
-    fetch(\`/api/history/multi/snapshot?days=\${days}\`)
+    fetch(`/api/history/multi/snapshot?days=${days}`)
       .then(r=>r.json())
       .then(data=>{
         const snap={};
