@@ -46,7 +46,7 @@ echo "✅  railway.json OK"
 echo ""
 echo "📤  Committing & pushing..."
 git add -A
-git commit -m "feat: full auto-demo engine, signal v4, all-symbol simulation
+git commit -m "fix: remove non-ASCII chars breaking JS parse + full auto-demo engine, signal v4, all-symbol simulation
 
 DEMO MODE — fully automatic:
 - Simulates a full trading day across all 20 symbols simultaneously
