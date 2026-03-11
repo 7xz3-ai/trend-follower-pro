@@ -343,7 +343,7 @@ function HistoryPanel({onSelectSym}){
   const [err,setErr]=useState(null);
   const [snapshot,setSnapshot]=useState({});
   const [snapshotLoading,setSnapshotLoading]=useState(false);
-  const [view,setView]=useState('chart'); // chart | heatmap | table
+  const [view,setView]=useState('screener'); // chart | heatmap | table
   const containerRef=useRef(null);
   const chartRef=useRef(null);
   const seriesRef=useRef(null);
@@ -853,8 +853,8 @@ function App(){
   const visSt=sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
   const mktCol=mktStatus.isOpen?'#22c55e':mktStatus.isPre||mktStatus.isAH?'#fbbf24':'#ef4444';
 
-  const th={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #0a0a10',whiteSpace:'nowrap'};
-  const td={padding:'5px 8px',borderBottom:'1px solid #080810',color:'#e2e8f0',fontSize:10};
+  const th={padding:'8px 10px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',fontWeight:700,borderBottom:'1px solid #0d0d14',whiteSpace:'nowrap'};
+  const td={padding:'10px 10px',borderBottom:'1px solid #0a0a12',color:'#e2e8f0',fontSize:13};
 
   // -- Analytics ------------------------------------------------------------
   const trades=closed;
@@ -869,15 +869,15 @@ function App(){
   const byReason={};trades.forEach(t=>{byReason[t.type]=(byReason[t.type]||0)+1;});
 
   const stat=(l,v,c='#e2e8f0')=>(
-    <div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px solid #0a0a10'}}>
-      <span style={{fontSize:8,color:'#475569'}}>{l}</span>
-      <span style={{fontSize:9,fontWeight:700,color:c}}>{v}</span>
+    <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #0a0a10'}}>
+      <span style={{fontSize:11,color:'#475569'}}>{l}</span>
+      <span style={{fontSize:12,fontWeight:700,color:c}}>{v}</span>
     </div>
   );
 
   // -- Demo Controls ---------------------------------------------------------
   const demoControls=(
-    <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+    <div style={{padding:'8px 12px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
       <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>
         {demoState==='running'?'* DEMO LIVE':demoState==='loading'?'* LOADING...':demoState==='done'?'* DONE':'* DEMO'}
       </span>
@@ -901,12 +901,12 @@ function App(){
       </label>
       {/* Start/Pause/Stop */}
       {(demoState==='idle'||demoState==='done')
-        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'3px 10px',fontSize:8,fontWeight:700,border:'1px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer'}}>
+        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'8px 20px',fontSize:13,fontWeight:700,border:'2px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer',borderRadius:4}}>
              Simulate Day
          </button>
         :<>
-          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'  Pause':'  Resume'}</button>}
-          <button onClick={stopDemo} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>  Stop</button>
+          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer',borderRadius:4}}>{demoState==='running'?'Pause':'Resume'}</button>}
+          <button onClick={stopDemo} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Stop</button>
           {/* Chart sym switch while running */}
           {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
@@ -944,37 +944,142 @@ function App(){
   );
 
   const screenerPanel=(
-    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
-      <div style={{display:'flex',gap:3,padding:'5px 8px',borderBottom:'1px solid #0f0f18',alignItems:'center',background:'#07070c'}}>
-        {['ALL','BUY','SELL','HOLD'].map(f=>(
-          <button key={f} onClick={()=>setSigFilter(f)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(sigFilter===f?(f==='BUY'?'#16a34a':f==='SELL'?'#991b1b':'#334155'):'#0f0f18'),color:sigFilter===f?(f==='BUY'?'#22c55e':f==='SELL'?'#ef4444':'#e2e8f0'):'#475569',background:'transparent',cursor:'pointer'}}>{f}</button>
-        ))}
-        {isActive&&<div style={{width:5,height:5,borderRadius:'50%',background:'#22c55e',marginLeft:'auto'}} className="pulse"/>}
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#060608'}}>
+      {/* Header explaining purpose */}
+      <div style={{padding:'10px 16px',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:'#f1f5f9',letterSpacing:'0.05em'}}>Signal Scanner</div>
+            <div style={{fontSize:11,color:'#475569',marginTop:2}}>Watches all 20 stocks live. When a BUY appears, hit Execute to open a trade.</div>
+          </div>
+          <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+            {['ALL','BUY','SELL','HOLD'].map(f=>(
+              <button key={f} onClick={()=>setSigFilter(f)}
+                style={{padding:'6px 16px',fontSize:12,fontWeight:700,
+                  border:'2px solid '+(sigFilter===f?(f==='BUY'?'#16a34a':f==='SELL'?'#991b1b':'#475569'):'#1e293b'),
+                  color:sigFilter===f?(f==='BUY'?'#22c55e':f==='SELL'?'#ef4444':'#e2e8f0'):'#475569',
+                  background:sigFilter===f?(f==='BUY'?'#0a1a0a':f==='SELL'?'#1a0a0a':'#111'):'transparent',
+                  borderRadius:4,cursor:'pointer'}}>
+                {f}{f==='BUY'?' ('+buys.length+')':''}
+              </button>
+            ))}
+            {isActive&&<div style={{display:'flex',alignItems:'center',gap:5}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:'#22c55e'}} className="pulse"/>
+              <span style={{fontSize:11,color:'#22c55e',fontWeight:600}}>Scanning live</span>
+            </div>}
+          </div>
+        </div>
       </div>
+      {/* Table */}
       <div style={{overflowY:'auto',flex:1}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead style={{position:'sticky',top:0,background:'#07070c',zIndex:10}}>
-            <tr>{['Sym','Price','Chg%','RSI','Trend','Signal','Str','Action'].map(h=><th key={h} style={th}>{h}</th>)}</tr>
+          <thead style={{position:'sticky',top:0,background:'#08080f',zIndex:10}}>
+            <tr>
+              {['Symbol','Price','Change','RSI','Trend','Signal','Strength','Stop Loss / Take Profit','Action'].map(h=>(
+                <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',fontWeight:700,borderBottom:'2px solid #0d0d18',whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr>
           </thead>
           <tbody>
             {visSt.map(s=>{
               const held=portfolio.positions.some(p=>p.symbol===s.symbol);
               const seed=SEEDS.find(sd=>sd.symbol===s.symbol);
+              const chg=s.changePercent??0;
+              const rsi=s.rsi??50;
+              const isBuy=s.signal==='BUY', isSell=s.signal==='SELL';
               return(
-                <tr key={s.symbol} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                  <td style={{...td,fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{s.symbol}</td>
-                  <td style={{...td,fontWeight:700}}>{usd(s.price)}</td>
-                  <td style={{...td,color:(s.changePercent??0)>=0?'#22c55e':'#ef4444',fontWeight:700}}>{(s.changePercent??0)>=0?'+':''}{(s.changePercent??0).toFixed(2)}%</td>
-                  <td style={td}>
-                    <div style={{display:'flex',alignItems:'center',gap:3}}>
-                      <div style={{width:28,height:4,background:'#111',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:(s.rsi??50)+'%',background:s.rsi<35?'#22c55e':s.rsi>68?'#ef4444':'#475569',borderRadius:2}}/></div>
-                      <span style={{fontSize:7,color:'#64748b'}}>{(s.rsi??50).toFixed(0)}</span>
+                <tr key={s.symbol}
+                  style={{cursor:'pointer',borderBottom:'1px solid #0a0a14',background:held?'#0d0d1e':isBuy?'#060e06':'transparent',transition:'background 0.2s'}}
+                  onClick={()=>{setSelectedSym(s.symbol);if(isMobile)setMobileTab('chart');else setTab('chart');}}>
+                  {/* Symbol */}
+                  <td style={{padding:'12px 12px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{width:4,height:32,borderRadius:2,background:TIER_COLOR[seed?.tier]||'#22d3ee',flexShrink:0}}/>
+                      <div>
+                        <div style={{color:TIER_COLOR[seed?.tier]||'#22d3ee',fontSize:15,fontWeight:800,letterSpacing:'0.04em'}}>{s.symbol}</div>
+                        <div style={{color:'#334155',fontSize:10,marginTop:1}}>{seed?.tier}</div>
+                      </div>
                     </div>
                   </td>
-                  <td style={{...td,fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?' ':s.downtrend?' ':'-'}</td>
-                  <td style={td}><span style={{fontSize:8,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'1px 4px'}}>{s.signal||'HOLD'}{s.entryType&&s.signal==='BUY'?<span style={{fontSize:6,color:'#64748b',marginLeft:3}}>{s.entryType}</span>:null}</span></td>
-                  <td style={{...td,fontSize:8,color:'#64748b'}}>{(s.signalStrength??0).toFixed(0)}%</td>
-                  <td style={td}>{s.signal==='BUY'&&!held&&<button onClick={e=>{e.stopPropagation();manualTrade(s);}} style={{border:'1px solid #16a34a',color:'#22c55e',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>+Buy</button>}{held&&<span style={{fontSize:7,color:'#334155'}}>HELD</span>}</td>
+                  {/* Price */}
+                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:15,color:'#f1f5f9',whiteSpace:'nowrap'}}>{usd(s.price)}</td>
+                  {/* Change */}
+                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:13,color:chg>=0?'#22c55e':'#ef4444',whiteSpace:'nowrap'}}>
+                    {chg>=0?'+':''}{chg.toFixed(2)}%
+                  </td>
+                  {/* RSI */}
+                  <td style={{padding:'12px 12px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:7}}>
+                      <div style={{width:44,height:7,background:'#111',borderRadius:3,overflow:'hidden',flexShrink:0}}>
+                        <div style={{height:'100%',width:rsi+'%',background:rsi<35?'#22c55e':rsi>68?'#ef4444':'#475569',borderRadius:3,transition:'width 0.4s'}}/>
+                      </div>
+                      <span style={{fontSize:13,color:rsi<35?'#22c55e':rsi>68?'#ef4444':'#94a3b8',fontWeight:600}}>{rsi.toFixed(0)}</span>
+                    </div>
+                  </td>
+                  {/* Trend */}
+                  <td style={{padding:'12px 12px'}}>
+                    <span style={{fontSize:12,fontWeight:700,padding:'4px 10px',borderRadius:3,
+                      background:s.uptrend?'#0a1f0a':s.downtrend?'#1c0707':'#111',
+                      color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#475569',
+                      border:'1px solid '+(s.uptrend?'#16a34a44':s.downtrend?'#99182244':'#1e293b')}}>
+                      {s.uptrend?'UP':s.downtrend?'DOWN':'FLAT'}
+                    </span>
+                  </td>
+                  {/* Signal */}
+                  <td style={{padding:'12px 12px'}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                      <span style={{fontSize:13,fontWeight:800,padding:'4px 10px',borderRadius:3,display:'inline-block',
+                        background:isBuy?'#0a1f0a':isSell?'#1c0505':'#0f0f14',
+                        color:isBuy?'#22c55e':isSell?'#ef4444':'#475569',
+                        border:'1px solid '+(isBuy?'#16a34a66':isSell?'#99182266':'#1e293b')}}>
+                        {s.signal||'HOLD'}
+                      </span>
+                      {s.entryType&&<span style={{fontSize:10,color:'#64748b',paddingLeft:2}}>{s.entryType}</span>}
+                    </div>
+                  </td>
+                  {/* Strength bar */}
+                  <td style={{padding:'12px 12px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:7}}>
+                      <div style={{width:56,height:7,background:'#0f0f14',borderRadius:3,overflow:'hidden',flexShrink:0}}>
+                        <div style={{height:'100%',width:(s.signalStrength??0)+'%',
+                          background:isBuy?'#22c55e':isSell?'#ef4444':'#334155',
+                          borderRadius:3,transition:'width 0.4s'}}/>
+                      </div>
+                      <span style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{(s.signalStrength??0).toFixed(0)}%</span>
+                    </div>
+                  </td>
+                  {/* SL/TP */}
+                  <td style={{padding:'12px 12px'}}>
+                    {s.stopLoss&&s.takeProfit?(
+                      <div style={{display:'flex',flexDirection:'column',gap:3,fontSize:12}}>
+                        <span style={{color:'#ef4444',fontWeight:600}}>SL {usd(s.stopLoss)}</span>
+                        <span style={{color:'#22c55e',fontWeight:600}}>TP {usd(s.takeProfit)}</span>
+                      </div>
+                    ):<span style={{color:'#1e293b',fontSize:12}}>--</span>}
+                  </td>
+                  {/* Action */}
+                  <td style={{padding:'12px 12px'}}>
+                    {isBuy&&!held&&(
+                      <button onClick={e=>{e.stopPropagation();manualTrade(s);}}
+                        style={{padding:'10px 22px',fontSize:14,fontWeight:800,
+                          border:'2px solid #16a34a',color:'#22c55e',
+                          background:'#0a1f0a',borderRadius:5,cursor:'pointer',
+                          whiteSpace:'nowrap',letterSpacing:'0.03em',
+                          boxShadow:'0 0 10px #22c55e22'}}>
+                        + Buy
+                      </button>
+                    )}
+                    {held&&(
+                      <span style={{fontSize:12,fontWeight:700,color:'#a78bfa',
+                        padding:'6px 12px',border:'1px solid #a78bfa44',
+                        background:'#0d0018',borderRadius:4,display:'inline-block'}}>
+                        HELD
+                      </span>
+                    )}
+                    {!isBuy&&!held&&(
+                      <span style={{fontSize:11,color:'#1e293b'}}>--</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -1007,7 +1112,7 @@ function App(){
                   <td style={{...td,color:'#ef4444',fontSize:9}}>{usd(pos.stopLoss)}</td>
                   <td style={{...td,color:'#22c55e',fontSize:9}}>{usd(pos.takeProfit)}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{border:'1px solid #991b1b',color:'#ef4444',padding:'1px 4px',fontSize:7,background:'transparent',cursor:'pointer'}}> </button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1078,9 +1183,9 @@ function App(){
   const sidebarContent=(
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
       <div style={{padding:'10px 10px',borderBottom:'1px solid #0f0f18'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-          <span style={{fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:autoOn?'#a78bfa':'#475569'}}>* Auto Engine</span>
-          <span style={{fontSize:7,padding:'2px 6px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700}}>{autoOn?'ARMED':'STANDBY'}</span>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+          <span style={{fontSize:13,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:autoOn?'#a78bfa':'#475569'}}>Auto Engine</span>
+          <span style={{fontSize:11,padding:'5px 12px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700,borderRadius:4}}>{autoOn?'ARMED':'STANDBY'}</span>
         </div>
         {[
           {k:'maxPositions',l:'Max Pos',min:1,max:10,step:1,sfx:''},
@@ -1131,8 +1236,8 @@ function App(){
                   <span style={{fontSize:7,color:'#22c55e',fontWeight:700}}>{s.signalStrength.toFixed(0)}%</span>
                   <span style={{fontSize:7,color:'#334155'}}>1:{s.riskReward}</span>
                 </div>
-                <button onClick={e=>{e.stopPropagation();!held&&manualTrade(s);}} disabled={held} style={{width:'100%',padding:'2px',fontSize:7,fontWeight:700,border:'1px solid '+(held?'#1e293b':'#16a34a'),color:held?'#334155':'#22c55e',background:'transparent',cursor:held?'not-allowed':'pointer'}}>
-                  {held?'Open':'Execute'}
+                <button onClick={e=>{e.stopPropagation();!held&&manualTrade(s);}} disabled={held} style={{width:'100%',padding:'8px',fontSize:13,fontWeight:700,border:'2px solid '+(held?'#1e293b':'#16a34a'),color:held?'#334155':'#22c55e',background:held?'transparent':'#0a1a0a',cursor:held?'not-allowed':'pointer',borderRadius:4}}>
+                  {held?'Already Open':'Execute Trade'}
                 </button>
               </div>
             );
@@ -1160,25 +1265,25 @@ function App(){
   return(
     <div style={{minHeight:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
       {/* Header */}
-      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'6px 10px',display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
-        <div style={{display:'flex',alignItems:'center',gap:7}}>
-          <div style={{width:7,height:7,borderRadius:'50%',background:modeColor,boxShadow:'0 0 5px '+modeColor}} className={isActive?'pulse':''}/>
-          <span style={{fontSize:12,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
-          <span style={{fontSize:7,color:modeColor,border:'1px solid '+modeColor+'44',padding:'1px 5px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
-          {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'1px 5px',fontWeight:700}} className="pulse">* {demoProgress}%</span>}
-          <div style={{display:'flex',alignItems:'center',gap:4}}>
-            <div style={{width:5,height:5,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
-            <span style={{fontSize:7,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
-            <span style={{fontSize:7,color:'#334155'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
-            <span style={{fontSize:7,color:'#1e293b'}}>. {mktStatus.next}</span>
+      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'10px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:10,height:10,borderRadius:'50%',background:modeColor,boxShadow:'0 0 8px '+modeColor}} className={isActive?'pulse':''}/>
+          <span style={{fontSize:17,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
+          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
+          {isDemoMode&&<span style={{fontSize:11,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'3px 8px',fontWeight:700}} className="pulse">DEMO {demoProgress}%</span>}
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
+            <span style={{fontSize:11,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
+            <span style={{fontSize:11,color:'#475569'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
+            <span style={{fontSize:10,color:'#334155'}}>  {mktStatus.next}</span>
           </div>
         </div>
-        <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
-          <span style={{fontSize:11,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
-          <span style={{fontSize:8,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
-          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:7,color:'#ef4444',border:'1px solid #ef444444',padding:'1px 4px'}}>  {riskAlerts.filter(a=>a.level==='danger').length}</span>}
-          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:'transparent',cursor:'pointer'}}>{autoOn?'  Disarm':'  Arm'}</button>
-          {dataMode==='idle'?<button onClick={connectLive} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'transparent',cursor:'pointer'}}>Connect</button>:<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disc.');}} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disc.</button>}
+        <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
+          <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+          <span style={{fontSize:12,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
+          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#ef4444',border:'1px solid #ef444444',padding:'3px 8px'}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
+          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:autoOn?'#0d001822':'transparent',cursor:'pointer'}}>{autoOn?'Disarm Engine':'Arm Engine'}</button>
+          {dataMode==='idle'?<button onClick={connectLive} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c100044',cursor:'pointer'}}>Connect</button>:<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disc.');}} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disconnect</button>}
         </div>
       </div>
 
@@ -1186,7 +1291,7 @@ function App(){
       {riskAlerts.length>0&&(
         <div style={{padding:'3px 10px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
           {riskAlerts.map((a,i)=>(
-            <span key={i} style={{fontSize:8,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'1px 6px'}}>
+            <span key={i} style={{fontSize:12,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'4px 10px',borderRadius:3}}>
               {a.level==='danger'?' ':a.level==='warn'?' ':' '} {a.msg}
             </span>
           ))}
@@ -1204,10 +1309,10 @@ function App(){
             {l:'CASH',v:'$'+portfolio.cash.toLocaleString('en-US',{maximumFractionDigits:0}),s:((portfolio.cash/equity)*100).toFixed(0)+'%',vc:'#fbbf24'},
             {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#facc15'},
           ].map(({l,v,s,vc},i)=>(
-            <div key={i} style={{background:'#07070c',padding:'7px 10px'}}>
-              <div style={{fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',marginBottom:2}}>{l}</div>
-              <div style={{fontSize:12,fontWeight:700,color:vc}}>{v}</div>
-              <div style={{fontSize:8,color:'#475569',marginTop:1}}>{s}</div>
+            <div key={i} style={{background:'#07070c',padding:'10px 14px'}}>
+              <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:3}}>{l}</div>
+              <div style={{fontSize:16,fontWeight:700,color:vc}}>{v}</div>
+              <div style={{fontSize:11,color:'#64748b',marginTop:2}}>{s}</div>
             </div>
           ))}
         </div>
@@ -1227,25 +1332,33 @@ function App(){
           </div>
           <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18'}}>
             {[['chart',' ','Chart'],['screener','*','Scan'],['positions',' ','Pos'],['analytics',' ','Stats'],['history',' ','Hist'],['engine','  ','Eng']].map(([t,icon,label])=>(
-              <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,background:'none',border:'none',cursor:'pointer',padding:'5px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
-                <span style={{fontSize:13}}>{icon}</span>
-                <span style={{fontSize:6,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
+              <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',cursor:'pointer',padding:'8px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
+                <span style={{fontSize:16}}>{icon}</span>
+                <span style={{fontSize:9,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
               </button>
             ))}
           </div>
         </div>
       ):(
-        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 260px',gap:1,background:'#0a0a10',minHeight:0,overflow:'hidden'}}>
-          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
+        /* Desktop 3-panel layout */
+        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 380px',gap:0,background:'#0a0a10',minHeight:0,overflow:'hidden',borderTop:'1px solid #0f0f18'}}>
+
+          {/* LEFT   Screener always visible, with sub-tabs below for other views */}
+          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',borderRight:'1px solid #0f0f14'}}>
+            {/* Sub-tabs: screener is default, others accessible */}
             <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
-              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')'],['history','  History']].map(([t,l])=>(
-                <button key={t} onClick={()=>setTab(t)} style={{padding:'6px 12px',fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',color:tab===t?'#22d3ee':'#475569',background:'none',cursor:'pointer',border:'none',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',whiteSpace:'nowrap'}}>
+              {[['screener','Scanner'],['positions','Positions ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Trade Log'],['history','History']].map(([t,l])=>(
+                <button key={t} onClick={()=>setTab(t)}
+                  style={{padding:'10px 16px',fontSize:12,fontWeight:700,
+                    borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',
+                    color:tab===t?'#22d3ee':'#475569',
+                    background:'none',border:'none',cursor:'pointer',whiteSpace:'nowrap',
+                    letterSpacing:'0.03em'}}>
                   {l}
                 </button>
               ))}
             </div>
             <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
-              {tab==='chart'&&chartPanel}
               {tab==='screener'&&screenerPanel}
               {tab==='positions'&&positionsPanel}
               {tab==='analytics'&&analyticsPanel}
@@ -1253,9 +1366,36 @@ function App(){
               {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setTab('chart');}}/>}
             </div>
           </div>
-          <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
-            {sidebarContent}
+
+          {/* RIGHT   Chart on top, engine+signals+log below */}
+          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',background:'#07070c'}}>
+            {/* Chart panel   fixed height */}
+            <div style={{height:320,flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
+              {/* Symbol strip */}
+              <div style={{display:'flex',gap:2,padding:'6px 8px',flexWrap:'wrap',borderBottom:'1px solid #0a0a12',background:'#060608',overflowX:'auto'}}>
+                {SEEDS.map(s=>(
+                  <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)}
+                    style={{padding:'3px 7px',fontSize:11,fontWeight:700,
+                      border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'88':'#111'),
+                      color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',
+                      background:selectedSym===s.symbol?TIER_COLOR[s.tier]+'11':'transparent',
+                      cursor:'pointer',borderRadius:3,whiteSpace:'nowrap'}}>
+                    {s.symbol}
+                  </button>
+                ))}
+              </div>
+              <div style={{height:'calc(100% - 38px)'}}>
+                <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]} isDemoMode={isDemoMode}/>
+              </div>
+            </div>
+            {/* Demo controls */}
+            {demoControls}
+            {/* Engine + signals scroll area */}
+            <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
+              {sidebarContent}
+            </div>
           </div>
+
         </div>
       )}
     </div>
