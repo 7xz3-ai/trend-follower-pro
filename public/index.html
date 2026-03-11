@@ -77,12 +77,12 @@ function getMarketStatus(){
   return{status,isOpen,isPre,isAH,etTime:et,next};
 }
 
-// ── Signal Engine v4 — decisive, multi-strategy, high trade frequency ─────────
+// -- Signal Engine v4 -- decisive, multi-strategy, high trade frequency ---------
 function computeSignal(prev,newPrice){
   const vol=prev.vol??0.02;
   const atr=f2(newPrice*vol);
 
-  // Persistent EMA state — approximate from price history
+  // Persistent EMA state -- approximate from price history
   const prevEma9=prev.ema9??newPrice,prevEma21=prev.ema21??newPrice;
   const prevEma50=prev.ema50??newPrice,prevEma200=prev.ema200??newPrice;
   const ema9=f2(newPrice*0.2+prevEma9*0.8);
@@ -91,7 +91,7 @@ function computeSignal(prev,newPrice){
   const ema200=f2(newPrice*0.01+prevEma200*0.99);
   const ema5=f2(newPrice*0.333+((prev.ema5??newPrice)*0.667));
 
-  // Persistent RSI — Wilder smoothing approximation
+  // Persistent RSI -- Wilder smoothing approximation
   const prevRsi=prev.rsi??50;
   const chg=newPrice-(prev.price??newPrice);
   const gain=chg>0?chg:0,loss=chg<0?-chg:0;
@@ -101,7 +101,7 @@ function computeSignal(prev,newPrice){
   const rs=avgLoss===0?100:avgGain/avgLoss;
   const rsi=f2(clamp(100-(100/(1+rs)),5,95));
 
-  // Momentum — rate of change over last tick
+  // Momentum -- rate of change over last tick
   const momentum=+pctOf(newPrice,prev.price??newPrice).toFixed(4);
 
   // Trend classification
@@ -109,7 +109,7 @@ function computeSignal(prev,newPrice){
   const weakUp=newPrice>ema21&&ema21>ema50;
   const downtrend=newPrice<ema21&&ema21<ema50;
 
-  // ── 5 Entry Strategies ────────────────────────────────────────────────────
+  // -- 5 Entry Strategies ----------------------------------------------------
   // PULLBACK: price touched ema9 then bouncing, RSI just reset
   const pullback=weakUp&&newPrice>ema9&&rsi>=32&&rsi<=56&&momentum>-0.08&&momentum<0.20;
 
@@ -119,13 +119,13 @@ function computeSignal(prev,newPrice){
   // BOUNCE: RSI washed out, price recovering from low
   const bounce=rsi>=25&&rsi<=44&&momentum>-0.05&&newPrice>ema9*0.998&&!downtrend;
 
-  // CROSS: ema5 freshly above ema9 — short-term momentum flip
+  // CROSS: ema5 freshly above ema9 -- short-term momentum flip
   const cross=ema5>ema9&&newPrice>ema9&&rsi>=38&&rsi<=68&&momentum>=0;
 
   // SCALP: any conditions just price above ema21 with positive momentum
   const scalp=newPrice>ema21&&momentum>0.01&&rsi>=35&&rsi<=65&&!downtrend;
 
-  // Score — higher base scores so more trades fire
+  // Score -- higher base scores so more trades fire
   const s1=pullback?(0.62+clamp((56-rsi)/56,0,0.25)+clamp(vol/0.05,0,0.13)):0;
   const s2=breakout?(0.60+clamp(momentum/0.3,0,0.22)+clamp(vol/0.06,0,0.13)):0;
   const s3=bounce?(0.60+clamp((44-rsi)/44,0,0.25)+clamp(vol/0.05,0,0.10)):0;
@@ -136,12 +136,12 @@ function computeSignal(prev,newPrice){
   const entryType=bestScore===s1?'PULLBACK':bestScore===s2?'BREAKOUT':bestScore===s3?'BOUNCE':bestScore===s4?'CROSS':'SCALP';
   const strength=clamp(bestScore*100,10,98);
 
-  // Signal — fire BUY on any qualifying strategy, not downtrend
+  // Signal -- fire BUY on any qualifying strategy, not downtrend
   let signal='HOLD';
   if(bestScore>=0.50&&!downtrend)signal='BUY';
   else if(rsi>=75||(downtrend&&momentum<-0.10))signal='SELL';
 
-  // SL/TP per strategy — tighter on scalps, wider on breakouts
+  // SL/TP per strategy -- tighter on scalps, wider on breakouts
   const slMult={PULLBACK:1.1,BREAKOUT:0.9,BOUNCE:1.3,CROSS:1.0,SCALP:0.7}[entryType]||1.0;
   const tpMult={PULLBACK:2.2,BREAKOUT:3.0,BOUNCE:1.8,CROSS:2.0,SCALP:1.4}[entryType]||2.0;
   const stopLoss=signal==='BUY'?f2(newPrice-atr*slMult):null;
@@ -161,7 +161,7 @@ function evaluateExit(pos,newPrice,sig,cfg,nowMs){
   const bestSL=Math.max(pos.stopLoss,trailSL);
   const heldSec=(nowMs-pos.enteredAt)/1000;
   const profInAtrs=profitPts/(pos.atr||0.001);
-  // Breakeven fast — as soon as 0.5 ATR in profit
+  // Breakeven fast -- as soon as 0.5 ATR in profit
   const beSL=profInAtrs>=0.5?Math.max(bestSL,pos.entryPrice+0.01):bestSL;
   if(newPrice<=beSL)return{close:true,reason:beSL>pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
   if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
@@ -213,7 +213,7 @@ function getRiskAlerts(portfolio,cfg,equity){
   return alerts;
 }
 
-// ── Chart ─────────────────────────────────────────────────────────────────────
+// -- Chart ---------------------------------------------------------------------
 function StockChart({symbol,livePrice,demoData,isDemoMode}){
   const containerRef=useRef(null);
   const chartRef=useRef(null);
@@ -268,7 +268,7 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
           const iv={'1min':60,'15min':900,'30min':1800,'1hr':3600,'4hr':14400,'1day':86400}[tf]||300;
           const sb=[];let p=seed?.price||100;
           for(let i=200;i>=0;i--){p=Math.max(0.01,f2(p*(1+(seed?.vol||0.02)*0.5*(Math.random()*2-1))));const o=f2(p*(1+(Math.random()-0.5)*0.005));sb.push({time:now-i*iv,open:o,high:f2(Math.max(p,o)*1.003),low:f2(Math.min(p,o)*0.997),close:p});}
-          seriesRef.current.setData(sb);chartRef.current.timeScale().fitContent();setErr('Mkt closed — sim data');
+          seriesRef.current.setData(sb);chartRef.current.timeScale().fitContent();setErr('Mkt closed -- sim data');
         }
         setLoading(false);
       }).catch(e=>{setErr(e.message);setLoading(false);});
@@ -308,7 +308,7 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
   );
 }
 
-// ── Equity Curve ──────────────────────────────────────────────────────────────
+// -- Equity Curve --------------------------------------------------------------
 function EquityCurve({history,currentEquity}){
   const ref=useRef(null);const chartRef=useRef(null);const seriesRef=useRef(null);
   useEffect(()=>{
@@ -331,9 +331,9 @@ function EquityCurve({history,currentEquity}){
   return <div ref={ref} style={{width:'100%',height:'100%',minHeight:100}}/>;
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// -- App -----------------------------------------------------------------------
 
-// ── History Panel — 1 month lookback per symbol ───────────────────────────────
+// -- History Panel -- 1 month lookback per symbol -------------------------------
 function HistoryPanel({onSelectSym}){
   const [sym,setSym]=useState('NVDA');
   const [tf,setTf]=useState('1Day');
@@ -372,7 +372,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch bars for selected symbol
   const fetchBars=useCallback(()=>{
     setLoading(true);setErr(null);
-    fetch(\`/api/history/\${sym}?timeframe=\${tf}&days=\${days}\`)
+    fetch('/api/history/'+sym+'?timeframe='+tf+'&days='+days)
       .then(r=>r.json())
       .then(data=>{
         if(data.error)throw new Error(data.error);
@@ -391,7 +391,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch snapshot for all symbols (heatmap view)
   const fetchSnapshot=useCallback(()=>{
     setSnapshotLoading(true);
-    fetch(\`/api/history/multi/snapshot?days=\${days}\`)
+    fetch('/api/history/multi/snapshot?days='+days)
       .then(r=>r.json())
       .then(data=>{
         const snap={};
@@ -439,9 +439,9 @@ function HistoryPanel({onSelectSym}){
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       {/* Controls bar */}
       <div style={{display:'flex',gap:6,padding:'5px 8px',borderBottom:'1px solid #0f0f18',background:'#07070c',flexWrap:'wrap',alignItems:'center'}}>
-        <span style={{fontSize:8,fontWeight:700,color:'#38bdf8',textTransform:'uppercase',letterSpacing:'0.1em'}}>📅 History</span>
+        <span style={{fontSize:8,fontWeight:700,color:'#38bdf8',textTransform:'uppercase',letterSpacing:'0.1em'}}>  History</span>
         {/* View toggle */}
-        {[['chart','📈'],['heatmap','🔥'],['table','⊞']].map(([v,icon])=>(
+        {[['chart',' '],['heatmap',' '],['table',' ']].map(([v,icon])=>(
           <button key={v} onClick={()=>setView(v)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(view===v?'#38bdf844':'#0f0f18'),color:view===v?'#38bdf8':'#334155',background:'transparent',cursor:'pointer'}}>{icon} {v}</button>
         ))}
         <span style={{color:'#1e293b',fontSize:9}}>|</span>
@@ -460,11 +460,11 @@ function HistoryPanel({onSelectSym}){
             {[['1Day','1D'],['1Hour','1H'],['30Min','30m'],['15Min','15m'],['5Min','5m']].map(([v,l])=>(
               <button key={v} onClick={()=>setTf(v)} style={{padding:'2px 5px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===v?'#38bdf844':'#1a1a2e'),color:tf===v?'#38bdf8':'#334155',background:tf===v?'#071825':'transparent',cursor:'pointer'}}>{l}</button>
             ))}
-            <button onClick={fetchBars} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{loading?'…':'↺'}</button>
+            <button onClick={fetchBars} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{loading?' ':' '}</button>
           </>
         )}
         {(view==='heatmap'||view==='table')&&(
-          <button onClick={fetchSnapshot} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{snapshotLoading?'…':'↺ Refresh'}</button>
+          <button onClick={fetchSnapshot} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{snapshotLoading?' ':'  Refresh'}</button>
         )}
       </div>
 
@@ -479,7 +479,7 @@ function HistoryPanel({onSelectSym}){
               </button>
             ))}
           </div>
-          {err&&<div style={{padding:'4px 10px',fontSize:8,color:'#f59e0b',background:'#1c100044'}}>{err} — showing sim data</div>}
+          {err&&<div style={{padding:'4px 10px',fontSize:8,color:'#f59e0b',background:'#1c100044'}}>{err} -- showing sim data</div>}
           <div ref={containerRef} style={{flex:1,minHeight:260}}/>
           {/* Stats bar */}
           {stats&&(
@@ -525,7 +525,7 @@ function HistoryPanel({onSelectSym}){
                       <span style={{fontSize:10,fontWeight:700,color:TIER_COLOR[s.tier]||'#22d3ee'}}>{s.symbol}</span>
                       <span style={{fontSize:9,fontWeight:700,color:heatColor(d.change)}}>{d.change>=0?'+':''}{d.change}%</span>
                     </div>
-                    <div style={{fontSize:8,color:'#475569',marginBottom:1}}>{d.count} days · close ${d.close}</div>
+                    <div style={{fontSize:8,color:'#475569',marginBottom:1}}>{d.count} days . close ${d.close}</div>
                     <div style={{height:3,background:'#0a0a10',borderRadius:2,overflow:'hidden',marginTop:4}}>
                       <div style={{height:'100%',width:Math.abs(d.change)/10*100+'%',maxWidth:'100%',background:heatColor(d.change),borderRadius:2}}/>
                     </div>
@@ -643,7 +643,7 @@ function App(){
     });
   },[addLog]);
 
-  // ── Demo Mode — all 20 symbols simultaneously with auto-trading ──────────────
+  // -- Demo Mode -- all 20 symbols simultaneously with auto-trading --------------
   const startDemo=useCallback(async(mode)=>{
     setDemoState('loading');setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
     addLog('[DEMO] Generating intraday data for all 20 symbols...','info');
@@ -655,7 +655,7 @@ function App(){
     const ys=yesterday.toISOString().split('T')[0];
 
     const allData={};
-    // Shared market bias — on a good day most go up, bad day most go down
+    // Shared market bias -- on a good day most go up, bad day most go down
     const marketBias=(Math.random()-0.42)*0.0005;
     addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' day ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
 
@@ -676,7 +676,7 @@ function App(){
     setDemoSym(firstSym);
     setDemoState('running');
     setDataMode('demo'); // unlock auto-engine
-    addLog('[DEMO] Running — auto-trading all symbols','trade');
+    addLog('[DEMO] Running -- auto-trading all symbols','trade');
   },[addLog]);
 
   const stopDemo=useCallback(()=>{
@@ -686,7 +686,7 @@ function App(){
     addLog('[DEMO] Stopped','info');
   },[addLog]);
 
-  // Tick loop — advances ALL symbols each interval
+  // Tick loop -- advances ALL symbols each interval
   useEffect(()=>{
     if(demoState!=='running')return;
     const interval=demoMode==='fast'?55:380;
@@ -696,7 +696,7 @@ function App(){
       if(idx>=maxLen){
         setDemoState('done');
         setDataMode('idle');
-        addLog('[DEMO] Day complete — check Analytics for results','trade');
+        addLog('[DEMO] Day complete -- check Analytics for results','trade');
         clearInterval(id);return;
       }
       // Feed ALL 20 symbols their bar at this minute
@@ -713,7 +713,7 @@ function App(){
     return()=>clearInterval(id);
   },[demoState,demoMode,processTick,addLog]);
 
-  // Demo auto-trader — fires independently when demoAutoOn
+  // Demo auto-trader -- fires independently when demoAutoOn
   useEffect(()=>{
     if(demoState!=='running')return;
     const id=setInterval(()=>{
@@ -757,7 +757,7 @@ function App(){
           entryType:best.entryType,enteredAt:now,
           t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true,isDemo:true
         });
-        addLog('[DEMO·'+(best.entryType||'AUTO')+'] '+best.symbol+' @ '+usd(best.price)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
+        addLog('[DEMO.'+(best.entryType||'AUTO')+'] '+best.symbol+' @ '+usd(best.price)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
       }
       if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
     },900);
@@ -767,11 +767,11 @@ function App(){
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting...');
     const protocol=window.location.protocol==='https:'?'wss:':'ws:';
-    let timer=setTimeout(()=>{addLog('[STREAM] No backend — sim mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
+    let timer=setTimeout(()=>{addLog('[STREAM] No backend -- sim mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
     const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
     ws.onmessage=evt=>{
       let msg;try{msg=JSON.parse(evt.data);}catch{return;}
-      if(msg.type==='connected'){clearTimeout(timer);setDataMode('live');addLog('[LIVE] Alpaca '+(msg.alpacaReady?'✓':'connecting...'),'trade');}
+      if(msg.type==='connected'){clearTimeout(timer);setDataMode('live');addLog('[LIVE] Alpaca '+(msg.alpacaReady?' ':'connecting...'),'trade');}
       if(msg.type==='alpaca_connected')addLog('[ALPACA] '+msg.symbols?.length+' symbols','trade');
       if(msg.type==='tick'&&msg.symbol&&msg.price)processTick(msg.symbol,msg.price);
     };
@@ -811,7 +811,7 @@ function App(){
         if(tradeVal>cashLeft*0.95||tradeVal/equity>0.20)continue;
         cashLeft=f2(cashLeft-tradeVal);
         newPositions.push({id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,entryType:best.entryType,enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true});
-        addLog('[AUTO·'+(best.entryType||'SIG')+'] '+best.symbol+' @ '+usd(best.price)+' '+best.signalStrength.toFixed(0)+'%','trade');
+        addLog('[AUTO.'+(best.entryType||'SIG')+'] '+best.symbol+' @ '+usd(best.price)+' '+best.signalStrength.toFixed(0)+'%','trade');
       }
       if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
     },800);
@@ -856,7 +856,7 @@ function App(){
   const th={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #0a0a10',whiteSpace:'nowrap'};
   const td={padding:'5px 8px',borderBottom:'1px solid #080810',color:'#e2e8f0',fontSize:10};
 
-  // ── Analytics ────────────────────────────────────────────────────────────
+  // -- Analytics ------------------------------------------------------------
   const trades=closed;
   const wns=trades.filter(t=>t.profit>0);
   const lss=trades.filter(t=>t.profit<=0);
@@ -875,11 +875,11 @@ function App(){
     </div>
   );
 
-  // ── Demo Controls ─────────────────────────────────────────────────────────
+  // -- Demo Controls ---------------------------------------------------------
   const demoControls=(
     <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
       <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>
-        {demoState==='running'?'⬡ DEMO LIVE':demoState==='loading'?'⬡ LOADING...':demoState==='done'?'⬡ DONE':'⬡ DEMO'}
+        {demoState==='running'?'* DEMO LIVE':demoState==='loading'?'* LOADING...':demoState==='done'?'* DONE':'* DEMO'}
       </span>
       {/* Speed toggle - only when idle/done */}
       {(demoState==='idle'||demoState==='done')&&(
@@ -902,11 +902,11 @@ function App(){
       {/* Start/Pause/Stop */}
       {(demoState==='idle'||demoState==='done')
         ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'3px 10px',fontSize:8,fontWeight:700,border:'1px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer'}}>
-           ▶ Simulate Day
+             Simulate Day
          </button>
         :<>
-          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'⏸ Pause':'▶ Resume'}</button>}
-          <button onClick={stopDemo} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>■ Stop</button>
+          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'  Pause':'  Resume'}</button>}
+          <button onClick={stopDemo} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>  Stop</button>
           {/* Chart sym switch while running */}
           {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
@@ -926,7 +926,7 @@ function App(){
     </div>
   );
 
-  // ── Panels ────────────────────────────────────────────────────────────────
+  // -- Panels ----------------------------------------------------------------
   const chartPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       <div style={{display:'flex',gap:2,padding:'4px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
@@ -971,7 +971,7 @@ function App(){
                       <span style={{fontSize:7,color:'#64748b'}}>{(s.rsi??50).toFixed(0)}</span>
                     </div>
                   </td>
-                  <td style={{...td,fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?'↑':s.downtrend?'↓':'–'}</td>
+                  <td style={{...td,fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?' ':s.downtrend?' ':'-'}</td>
                   <td style={td}><span style={{fontSize:8,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'1px 4px'}}>{s.signal||'HOLD'}{s.entryType&&s.signal==='BUY'?<span style={{fontSize:6,color:'#64748b',marginLeft:3}}>{s.entryType}</span>:null}</span></td>
                   <td style={{...td,fontSize:8,color:'#64748b'}}>{(s.signalStrength??0).toFixed(0)}%</td>
                   <td style={td}>{s.signal==='BUY'&&!held&&<button onClick={e=>{e.stopPropagation();manualTrade(s);}} style={{border:'1px solid #16a34a',color:'#22c55e',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>+Buy</button>}{held&&<span style={{fontSize:7,color:'#334155'}}>HELD</span>}</td>
@@ -988,7 +988,7 @@ function App(){
     <div style={{overflowY:'auto',height:'100%'}}>
       {portfolio.positions.length===0?(
         <div style={{height:130,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'#1e293b',gap:5}}>
-          <div style={{fontSize:24}}>⬡</div>
+          <div style={{fontSize:24}}>*</div>
           <div style={{fontSize:8,color:'#334155',textTransform:'uppercase'}}>{autoOn?'Scanning...':'Arm engine or buy manually'}</div>
         </div>
       ):(
@@ -1000,14 +1000,14 @@ function App(){
               const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
               return(
                 <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>⬡</span>}{pos.symbol}{pos.entryType&&<span style={{fontSize:6,color:'#475569',marginLeft:3}}>{pos.entryType}</span>}</td>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>*</span>}{pos.symbol}{pos.entryType&&<span style={{fontSize:6,color:'#475569',marginLeft:3}}>{pos.entryType}</span>}</td>
                   <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</td>
                   <td style={{...td,color:'#ef4444',fontSize:9}}>{usd(pos.stopLoss)}</td>
                   <td style={{...td,color:'#22c55e',fontSize:9}}>{usd(pos.takeProfit)}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{border:'1px solid #991b1b',color:'#ef4444',padding:'1px 4px',fontSize:7,background:'transparent',cursor:'pointer'}}>✕</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{border:'1px solid #991b1b',color:'#ef4444',padding:'1px 4px',fontSize:7,background:'transparent',cursor:'pointer'}}> </button></td>
                 </tr>
               );
             })}
@@ -1079,15 +1079,15 @@ function App(){
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
       <div style={{padding:'10px 10px',borderBottom:'1px solid #0f0f18'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-          <span style={{fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:autoOn?'#a78bfa':'#475569'}}>⬡ Auto Engine</span>
+          <span style={{fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:autoOn?'#a78bfa':'#475569'}}>* Auto Engine</span>
           <span style={{fontSize:7,padding:'2px 6px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700}}>{autoOn?'ARMED':'STANDBY'}</span>
         </div>
         {[
           {k:'maxPositions',l:'Max Pos',min:1,max:10,step:1,sfx:''},
           {k:'riskPct',l:'Risk/Trade',min:0.5,max:5,step:0.5,sfx:'%'},
           {k:'minStrength',l:'Min Sig',min:50,max:95,step:1,sfx:'%'},
-          {k:'minRR',l:'Min R:R',min:1,max:4,step:0.1,sfx:'×'},
-          {k:'trailMult',l:'Trail ATR',min:0.4,max:3,step:0.1,sfx:'×'},
+          {k:'minRR',l:'Min R:R',min:1,max:4,step:0.1,sfx:' '},
+          {k:'trailMult',l:'Trail ATR',min:0.4,max:3,step:0.1,sfx:' '},
           {k:'cooldownSec',l:'Cooldown',min:10,max:300,step:5,sfx:'s'},
           {k:'maxHoldSec',l:'Max Hold',min:60,max:900,step:30,sfx:'s'},
         ].map(({k,l,min,max,step,sfx})=>(
@@ -1105,7 +1105,7 @@ function App(){
         </div>
       </div>
       <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
-        <div style={{padding:'5px 10px',fontSize:7,fontWeight:700,color:'#ca8a04',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18'}}>⬡ Top Signals</div>
+        <div style={{padding:'5px 10px',fontSize:7,fontWeight:700,color:'#ca8a04',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18'}}>* Top Signals</div>
         <div style={{overflowY:'auto',flex:1,padding:5,display:'flex',flexDirection:'column',gap:4}}>
           {!isActive&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}}>Connect to begin</div>}
           {isActive&&buys.length===0&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}} className="pulse">Scanning...</div>}
@@ -1118,7 +1118,7 @@ function App(){
                   <div style={{display:'flex',alignItems:'center',gap:4}}>
                     <span style={{fontSize:6,padding:'1px 3px',border:'1px solid #16a34a',color:'#22c55e',fontWeight:700}}>BUY</span>
                     <span style={{fontWeight:700,color:TIER_COLOR[SEEDS.find(sd=>sd.symbol===s.symbol)?.tier]||'#22d3ee',fontSize:10}}>{s.symbol}</span>
-                    {qual&&<span style={{fontSize:6,color:'#22c55e'}}>AUTO✓</span>}
+                    {qual&&<span style={{fontSize:6,color:'#22c55e'}}>AUTO </span>}
                   </div>
                   <span style={{fontWeight:700,color:'#22c55e',fontSize:9}}>{usd(s.price)}</span>
                 </div>
@@ -1165,19 +1165,19 @@ function App(){
           <div style={{width:7,height:7,borderRadius:'50%',background:modeColor,boxShadow:'0 0 5px '+modeColor}} className={isActive?'pulse':''}/>
           <span style={{fontSize:12,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
           <span style={{fontSize:7,color:modeColor,border:'1px solid '+modeColor+'44',padding:'1px 5px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
-          {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'1px 5px',fontWeight:700}} className="pulse">⬡ {demoProgress}%</span>}
+          {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'1px 5px',fontWeight:700}} className="pulse">* {demoProgress}%</span>}
           <div style={{display:'flex',alignItems:'center',gap:4}}>
             <div style={{width:5,height:5,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
             <span style={{fontSize:7,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
             <span style={{fontSize:7,color:'#334155'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
-            <span style={{fontSize:7,color:'#1e293b'}}>· {mktStatus.next}</span>
+            <span style={{fontSize:7,color:'#1e293b'}}>. {mktStatus.next}</span>
           </div>
         </div>
         <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
           <span style={{fontSize:11,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
           <span style={{fontSize:8,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
-          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:7,color:'#ef4444',border:'1px solid #ef444444',padding:'1px 4px'}}>⚠ {riskAlerts.filter(a=>a.level==='danger').length}</span>}
-          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:'transparent',cursor:'pointer'}}>{autoOn?'■ Disarm':'▶ Arm'}</button>
+          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:7,color:'#ef4444',border:'1px solid #ef444444',padding:'1px 4px'}}>  {riskAlerts.filter(a=>a.level==='danger').length}</span>}
+          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:'transparent',cursor:'pointer'}}>{autoOn?'  Disarm':'  Arm'}</button>
           {dataMode==='idle'?<button onClick={connectLive} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'transparent',cursor:'pointer'}}>Connect</button>:<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disc.');}} style={{padding:'3px 8px',fontSize:7,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disc.</button>}
         </div>
       </div>
@@ -1187,7 +1187,7 @@ function App(){
         <div style={{padding:'3px 10px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
           {riskAlerts.map((a,i)=>(
             <span key={i} style={{fontSize:8,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'1px 6px'}}>
-              {a.level==='danger'?'🔴':a.level==='warn'?'🟡':'🔵'} {a.msg}
+              {a.level==='danger'?' ':a.level==='warn'?' ':' '} {a.msg}
             </span>
           ))}
         </div>
@@ -1226,7 +1226,7 @@ function App(){
             {mobileTab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setMobileTab('chart');}}/>}
           </div>
           <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18'}}>
-            {[['chart','📈','Chart'],['screener','⬡','Scan'],['positions','💼','Pos'],['analytics','📊','Stats'],['history','📅','Hist'],['engine','⚙️','Eng']].map(([t,icon,label])=>(
+            {[['chart',' ','Chart'],['screener','*','Scan'],['positions',' ','Pos'],['analytics',' ','Stats'],['history',' ','Hist'],['engine','  ','Eng']].map(([t,icon,label])=>(
               <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,background:'none',border:'none',cursor:'pointer',padding:'5px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
                 <span style={{fontSize:13}}>{icon}</span>
                 <span style={{fontSize:6,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
@@ -1238,7 +1238,7 @@ function App(){
         <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 260px',gap:1,background:'#0a0a10',minHeight:0,overflow:'hidden'}}>
           <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
-              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')'],['history','📅 History']].map(([t,l])=>(
+              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')'],['history','  History']].map(([t,l])=>(
                 <button key={t} onClick={()=>setTab(t)} style={{padding:'6px 12px',fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',color:tab===t?'#22d3ee':'#475569',background:'none',cursor:'pointer',border:'none',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',whiteSpace:'nowrap'}}>
                   {l}
                 </button>
