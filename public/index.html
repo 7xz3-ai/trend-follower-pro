@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -571,8 +570,15 @@ function App(){
   const logBuf=useRef([]);const livePrices=useRef({});
   const demoIdxRef=useRef(0);const demoDataRef=useRef({}); // Changed to object for multi-symbol data
 
-  stocksRef.current=stocks;portfolioRef.current=portfolio;
-  cfgRef.current=cfg;autoOnRef.current=autoOn;demoDataRef.current=demoData;
+    useEffect(() => {
+    stocksRef.current=stocks;
+    portfolioRef.current=portfolio;
+    cfgRef.current=cfg;
+    autoOnRef.current=autoOn;
+  });
+  useEffect(() => {
+    demoDataRef.current = demoData;
+  }, [demoData]);
 
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   useEffect(()=>{const id=setInterval(()=>setMktStatus(getMarketStatus()),15000);return()=>clearInterval(id);},[]);
@@ -640,7 +646,7 @@ function App(){
       const symbols = Object.keys(allData);
       if(symbols.length === 0) return;
       
-      const maxLength = Math.max(...Object.values(allData).map(d => d.length));
+      const maxLength = symbols.length > 0 ? Math.max(...Object.values(allData).map(d => d.length)) : 0;
       if(demoIdxRef.current >= maxLength){setDemoState('done');addLog('[DEMO] Complete','info');clearInterval(id);return;}
       
       symbols.forEach(s => {
@@ -654,7 +660,7 @@ function App(){
       demoIdxRef.current++;
     },interval);
     return()=>clearInterval(id);
-  },[demoState,demoMode,demoSym,processTick,addLog]);
+  },[demoState,demoMode,demoSym,processTick,addLog, demoData]);
 
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting...');
@@ -806,7 +812,7 @@ function App(){
         ))}
       </div>
       <div style={{flexGrow:1,minHeight:0}}>
-        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoData[selectedSym] || []} isDemoMode={isDemoMode && demoData[selectedSym]}/>
+        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoData[selectedSym] || []} isDemoMode={isDemoMode}/>
       </div>
       {demoControls}
     </div>
