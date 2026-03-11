@@ -25,7 +25,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 const SEEDS=[
   {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
@@ -80,27 +80,53 @@ function getMarketStatus(){
 function computeSignal(prev,newPrice){
   const vol=prev.vol??0.02;
   const atr=f2(newPrice*vol);
-  const ema9=f2(newPrice*0.9978),ema21=f2(newPrice*0.9942);
+  // Multiple EMAs for richer context
+  const ema5=f2(newPrice*0.9988),ema9=f2(newPrice*0.9978),ema21=f2(newPrice*0.9942);
   const sma50=f2(newPrice*0.9845),sma200=f2(newPrice*0.9230);
+  // RSI with faster mean-reversion
   const prevRsi=prev.rsi??prev.baseRsi??50;
-  const rsi=clamp(prevRsi+(50-prevRsi)*0.055+(Math.random()*3.2-1.6),8,92);
+  const rsi=clamp(prevRsi+(50-prevRsi)*0.08+(Math.random()*5-2.5),8,92);
   const momentum=pctOf(newPrice,prev.price??newPrice);
+  // Trend states
   const uptrend=newPrice>ema21&&ema21>sma50&&sma50>sma200;
+  const weakUptrend=newPrice>ema21&&ema21>sma50;
   const downtrend=newPrice<ema21&&ema21<sma50;
-  const rsiScore=rsi>=32&&rsi<=44?1.0:rsi>44&&rsi<=52?0.72:rsi>52&&rsi<=60?0.30:rsi<32?0.18:0.0;
-  const trendScore=uptrend?1.0:!downtrend?0.35:0.0;
-  const momScore=momentum>0&&momentum<0.55?clamp(momentum/0.3,0,1):momentum>=0.55?0.12:0;
-  const emaScore=newPrice>ema9?0.90:0.10;
-  const volBonus=vol>=0.035?1.0:vol>=0.020?0.65:0.40;
-  const raw=(rsiScore*0.38+trendScore*0.28+momScore*0.18+emaScore*0.10+volBonus*0.06)*100;
-  const strength=clamp(raw+(Math.random()*1.8-0.9),0,99);
+  const aboveEma9=newPrice>ema9,aboveEma5=newPrice>ema5;
+
+  // --- Entry type detection (multiple strategies) ---
+  // 1. Trend continuation: price pulls back to ema9, RSI reset, re-accelerating
+  const trendPullback=weakUptrend&&aboveEma9&&rsi>=35&&rsi<=55&&momentum>=-0.05&&momentum<=0.15;
+  // 2. Momentum breakout: strong move up with volume surrogate (high vol symbol)
+  const momentumBreak=vol>=0.025&&momentum>0.05&&momentum<0.6&&rsi>=45&&rsi<=68&&aboveEma5;
+  // 3. RSI oversold bounce: RSI dipped and recovering, any trend
+  const rsiBounce=rsi>=28&&rsi<=42&&momentum>=-0.02&&!downtrend;
+  // 4. EMA crossover surrogate: ema5 just crossed above ema9 (price momentum signal)
+  const emaCross=ema5>ema9&&aboveEma5&&rsi>=40&&rsi<=65&&momentum>0;
+  // 5. Range scalp: sideways market, price near lower band, RSI neutral-low
+  const rangeScalp=!uptrend&&!downtrend&&rsi>=38&&rsi<=52&&momentum>-0.03&&momentum<0.08;
+
+  // Score each strategy
+  const s1=trendPullback?(0.55+clamp((55-rsi)/55,0,0.3)+clamp(vol/0.05,0,0.15)):0;
+  const s2=momentumBreak?(0.50+clamp(momentum/0.4,0,0.25)+clamp(vol/0.06,0,0.15)):0;
+  const s3=rsiBounce?(0.52+clamp((42-rsi)/42,0,0.28)+clamp(vol/0.05,0,0.10)):0;
+  const s4=emaCross?(0.48+clamp(momentum/0.3,0,0.25)+clamp(vol/0.05,0,0.12)):0;
+  const s5=rangeScalp?(0.42+clamp((52-rsi)/52,0,0.20)+clamp(vol/0.06,0,0.08)):0;
+  const bestScore=Math.max(s1,s2,s3,s4,s5);
+  const entryType=bestScore===s1?'PULLBACK':bestScore===s2?'BREAKOUT':bestScore===s3?'BOUNCE':bestScore===s4?'CROSS':'SCALP';
+  const strength=clamp(bestScore*100+(Math.random()*4-2),0,98);
+
+  // Fire BUY if any strategy qualifies at a lower threshold
   let signal='HOLD';
-  if(uptrend&&rsi>=26&&rsi<=54&&strength>=50)signal='BUY';
-  else if(rsi>=70||downtrend)signal='SELL';
-  const stopLoss=signal==='BUY'?f2(newPrice-atr*1.5):null;
-  const takeProfit=signal==='BUY'?f2(newPrice+atr*2.5):null;
+  if(bestScore>=0.45&&!downtrend)signal='BUY';
+  else if(rsi>=72||downtrend&&momentum<-0.08)signal='SELL';
+
+  // Tighter stops/targets tuned per entry type
+  const slMult={'PULLBACK':1.2,'BREAKOUT':1.0,'BOUNCE':1.4,'CROSS':1.1,'SCALP':0.8}[entryType]||1.2;
+  const tpMult={'PULLBACK':2.2,'BREAKOUT':2.8,'BOUNCE':1.8,'CROSS':2.0,'SCALP':1.5}[entryType]||2.0;
+  const stopLoss=signal==='BUY'?f2(newPrice-atr*slMult):null;
+  const takeProfit=signal==='BUY'?f2(newPrice+atr*tpMult):null;
   const riskReward=stopLoss&&takeProfit?+((takeProfit-newPrice)/(newPrice-stopLoss)).toFixed(2):null;
-  return{atr,ema9,ema21,sma50,sma200,rsi:f2(rsi),momentum:+momentum.toFixed(4),uptrend,downtrend,signal,signalStrength:f2(strength),stopLoss,takeProfit,riskReward};
+  return{atr,ema5,ema9,ema21,sma50,sma200,rsi:f2(rsi),momentum:+momentum.toFixed(4),uptrend,weakUptrend,downtrend,signal,signalStrength:f2(strength),entryType:signal==='BUY'?entryType:null,stopLoss,takeProfit,riskReward};
 }
 
 function evaluateExit(pos,newPrice,sig,cfg,nowMs){
@@ -110,12 +136,14 @@ function evaluateExit(pos,newPrice,sig,cfg,nowMs){
   const bestSL=Math.max(pos.stopLoss,trailSL);
   const heldSec=(nowMs-pos.enteredAt)/1000;
   const profInAtrs=profitPts/(pos.atr||1);
-  const beSL=profInAtrs>=1.0?Math.max(bestSL,pos.entryPrice):bestSL;
+  // Move to breakeven faster (0.6 ATRs profit instead of 1.0)
+  const beSL=profInAtrs>=0.6?Math.max(bestSL,pos.entryPrice):bestSL;
   if(newPrice<=beSL)return{close:true,reason:beSL>=pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
   if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
-  if(sig.rsi>=68&&sig.momentum<0.05&&profInAtrs>=0.8)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
-  if(profInAtrs>=1.2&&sig.momentum<-0.08)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
-  if(profInAtrs>=1.0&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
+  // Earlier RSI peak exit — don't wait for full reversal
+  if(sig.rsi>=65&&sig.momentum<0.02&&profInAtrs>=0.5)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
+  if(profInAtrs>=1.0&&sig.momentum<-0.05)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
+  if(profInAtrs>=0.8&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
   if(heldSec>=cfg.maxHoldSec)return{close:true,reason:'TIME_EXIT',hwm,newSL:beSL};
   return{close:false,reason:null,hwm,newSL:beSL};
 }
@@ -268,6 +296,251 @@ function EquityCurve({history,currentEquity}){
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
+
+// ── History Panel — 1 month lookback per symbol ───────────────────────────────
+function HistoryPanel({onSelectSym}){
+  const [sym,setSym]=useState('NVDA');
+  const [tf,setTf]=useState('1Day');
+  const [days,setDays]=useState(30);
+  const [bars,setBars]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState(null);
+  const [snapshot,setSnapshot]=useState({});
+  const [snapshotLoading,setSnapshotLoading]=useState(false);
+  const [view,setView]=useState('chart'); // chart | heatmap | table
+  const containerRef=useRef(null);
+  const chartRef=useRef(null);
+  const seriesRef=useRef(null);
+  const seed=SEEDS.find(s=>s.symbol===sym);
+
+  // Chart init
+  useEffect(()=>{
+    if(!containerRef.current)return;
+    const chart=LightweightCharts.createChart(containerRef.current,{
+      layout:{background:{color:'#060608'},textColor:'#94a3b8'},
+      grid:{vertLines:{color:'#0d0d12'},horzLines:{color:'#0d0d12'}},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+      rightPriceScale:{borderColor:'#1e293b'},
+      timeScale:{borderColor:'#1e293b',timeVisible:true},
+      handleScroll:true,handleScale:true,
+      width:containerRef.current.clientWidth,
+      height:containerRef.current.clientHeight||320,
+    });
+    const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#16a34a',wickDownColor:'#dc2626'});
+    chartRef.current=chart;seriesRef.current=series;
+    const ro=new ResizeObserver(()=>{if(containerRef.current)chart.applyOptions({width:containerRef.current.clientWidth,height:containerRef.current.clientHeight||320});});
+    ro.observe(containerRef.current);
+    return()=>{ro.disconnect();chart.remove();};
+  },[]);
+
+  // Fetch bars for selected symbol
+  const fetchBars=useCallback(()=>{
+    setLoading(true);setErr(null);
+    fetch(\`/api/history/\${sym}?timeframe=\${tf}&days=\${days}\`)
+      .then(r=>r.json())
+      .then(data=>{
+        if(data.error)throw new Error(data.error);
+        const mapped=(data.bars||[]).map(b=>({time:Math.floor(new Date(b.t).getTime()/1000),open:b.o,high:b.h,low:b.l,close:b.c,volume:b.v})).sort((a,b)=>a.time-b.time);
+        setBars(mapped);
+        if(seriesRef.current&&mapped.length>0){
+          try{seriesRef.current.setData(mapped);chartRef.current.timeScale().fitContent();}catch(e){}
+        }
+        setLoading(false);
+      })
+      .catch(e=>{setErr(e.message);setLoading(false);});
+  },[sym,tf,days]);
+
+  useEffect(()=>{if(view==='chart')fetchBars();},[fetchBars,view]);
+
+  // Fetch snapshot for all symbols (heatmap view)
+  const fetchSnapshot=useCallback(()=>{
+    setSnapshotLoading(true);
+    fetch(\`/api/history/multi/snapshot?days=\${days}\`)
+      .then(r=>r.json())
+      .then(data=>{
+        const snap={};
+        Object.entries(data.snapshot||{}).forEach(([sym,bars])=>{
+          if(!bars||bars.length<2)return;
+          const first=bars[0],last=bars[bars.length-1];
+          const change=((last.c-first.o)/first.o)*100;
+          const high=Math.max(...bars.map(b=>b.h));
+          const low=Math.min(...bars.map(b=>b.l));
+          const avgVol=bars.reduce((a,b)=>a+(b.v||0),0)/bars.length;
+          snap[sym]={change:+change.toFixed(2),high:+high.toFixed(2),low:+low.toFixed(2),close:+last.c.toFixed(2),open:+first.o.toFixed(2),avgVol:Math.round(avgVol),count:bars.length};
+        });
+        setSnapshot(snap);setSnapshotLoading(false);
+      })
+      .catch(e=>{setSnapshotLoading(false);});
+  },[days]);
+
+  useEffect(()=>{if(view==='heatmap'||view==='table')fetchSnapshot();},[fetchSnapshot,view]);
+
+  // Compute stats from bars
+  const stats=useMemo(()=>{
+    if(bars.length<2)return null;
+    const changes=bars.slice(1).map((b,i)=>((b.close-bars[i].close)/bars[i].close)*100);
+    const upDays=changes.filter(c=>c>0).length;
+    const downDays=changes.filter(c=>c<=0).length;
+    const totalReturn=((bars[bars.length-1].close-bars[0].open)/bars[0].open)*100;
+    const high=Math.max(...bars.map(b=>b.high));
+    const low=Math.min(...bars.map(b=>b.low));
+    const avgChange=changes.reduce((a,c)=>a+c,0)/changes.length;
+    const volatility=Math.sqrt(changes.reduce((a,c)=>a+(c-avgChange)**2,0)/changes.length);
+    const maxDrawdown=bars.reduce((worst,b,i)=>{
+      const peak=Math.max(...bars.slice(0,i+1).map(b=>b.high));
+      return Math.min(worst,((b.low-peak)/peak)*100);
+    },0);
+    return{totalReturn:+totalReturn.toFixed(2),high:+high.toFixed(2),low:+low.toFixed(2),upDays,downDays,volatility:+volatility.toFixed(2),maxDrawdown:+maxDrawdown.toFixed(2),bars:bars.length};
+  },[bars]);
+
+  const heatColor=pct=>pct>=5?'#16a34a':pct>=2?'#22c55e':pct>=0?'#166534':pct>=-2?'#7f1d1d':pct>=-5?'#ef4444':'#dc2626';
+  const heatBg=pct=>pct>=5?'#14532d22':pct>=2?'#16a34a22':pct>=0?'#0a1f0a':pct>=-2?'#1c050544':pct>=-5?'#7f1d1d22':'#450a0a22';
+
+  const th2={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #0a0a10',whiteSpace:'nowrap'};
+  const td2={padding:'5px 8px',borderBottom:'1px solid #080810',color:'#e2e8f0',fontSize:10};
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      {/* Controls bar */}
+      <div style={{display:'flex',gap:6,padding:'5px 8px',borderBottom:'1px solid #0f0f18',background:'#07070c',flexWrap:'wrap',alignItems:'center'}}>
+        <span style={{fontSize:8,fontWeight:700,color:'#38bdf8',textTransform:'uppercase',letterSpacing:'0.1em'}}>📅 History</span>
+        {/* View toggle */}
+        {[['chart','📈'],['heatmap','🔥'],['table','⊞']].map(([v,icon])=>(
+          <button key={v} onClick={()=>setView(v)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(view===v?'#38bdf844':'#0f0f18'),color:view===v?'#38bdf8':'#334155',background:'transparent',cursor:'pointer'}}>{icon} {v}</button>
+        ))}
+        <span style={{color:'#1e293b',fontSize:9}}>|</span>
+        {/* Days range */}
+        {[7,14,30].map(d=>(
+          <button key={d} onClick={()=>setDays(d)} style={{padding:'2px 6px',fontSize:8,fontWeight:700,border:'1px solid '+(days===d?'#38bdf844':'#0f0f18'),color:days===d?'#38bdf8':'#475569',background:'transparent',cursor:'pointer'}}>{d}D</button>
+        ))}
+        {view==='chart'&&(
+          <>
+            <span style={{color:'#1e293b',fontSize:9}}>|</span>
+            {/* Symbol select */}
+            <select value={sym} onChange={e=>setSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 5px'}}>
+              {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+            </select>
+            {/* Timeframe */}
+            {[['1Day','1D'],['1Hour','1H'],['30Min','30m'],['15Min','15m'],['5Min','5m']].map(([v,l])=>(
+              <button key={v} onClick={()=>setTf(v)} style={{padding:'2px 5px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===v?'#38bdf844':'#1a1a2e'),color:tf===v?'#38bdf8':'#334155',background:tf===v?'#071825':'transparent',cursor:'pointer'}}>{l}</button>
+            ))}
+            <button onClick={fetchBars} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{loading?'…':'↺'}</button>
+          </>
+        )}
+        {(view==='heatmap'||view==='table')&&(
+          <button onClick={fetchSnapshot} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{snapshotLoading?'…':'↺ Refresh'}</button>
+        )}
+      </div>
+
+      {/* Chart view */}
+      {view==='chart'&&(
+        <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0}}>
+          {/* Symbol strip */}
+          <div style={{display:'flex',gap:2,padding:'3px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#060608'}}>
+            {SEEDS.map(s=>(
+              <button key={s.symbol} onClick={()=>{setSym(s.symbol);if(onSelectSym)onSelectSym(s.symbol);}} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(sym===s.symbol?TIER_COLOR[s.tier]+'66':'#0f0f18'),color:sym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
+                {s.symbol}
+              </button>
+            ))}
+          </div>
+          {err&&<div style={{padding:'4px 10px',fontSize:8,color:'#f59e0b',background:'#1c100044'}}>{err} — showing sim data</div>}
+          <div ref={containerRef} style={{flex:1,minHeight:260}}/>
+          {/* Stats bar */}
+          {stats&&(
+            <div style={{display:'flex',gap:0,borderTop:'1px solid #0f0f18',background:'#07070c',flexWrap:'wrap'}}>
+              {[
+                {l:days+'D Return',v:(stats.totalReturn>=0?'+':'')+stats.totalReturn+'%',c:stats.totalReturn>=0?'#22c55e':'#ef4444'},
+                {l:days+'D High',v:'$'+stats.high,c:'#22c55e'},
+                {l:days+'D Low',v:'$'+stats.low,c:'#ef4444'},
+                {l:'Up Days',v:stats.upDays,c:'#22c55e'},
+                {l:'Down Days',v:stats.downDays,c:'#ef4444'},
+                {l:'Volatility',v:stats.volatility+'%',c:'#fbbf24'},
+                {l:'Max DD',v:stats.maxDrawdown+'%',c:'#ef4444'},
+                {l:'Bars',v:stats.bars,c:'#64748b'},
+              ].map(({l,v,c},i)=>(
+                <div key={i} style={{padding:'5px 10px',borderRight:'1px solid #0f0f18',minWidth:80}}>
+                  <div style={{fontSize:7,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>{l}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:c,marginTop:1}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Heatmap view */}
+      {view==='heatmap'&&(
+        <div style={{flex:1,overflowY:'auto',padding:10}}>
+          {snapshotLoading?(
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:150,color:'#334155',fontSize:9,textTransform:'uppercase'}} className="pulse">Loading {days}D data for all symbols...</div>
+          ):(
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(110px,1fr))',gap:6}}>
+              {SEEDS.map(s=>{
+                const d=snapshot[s.symbol];
+                if(!d)return(
+                  <div key={s.symbol} style={{border:'1px solid #0f0f18',padding:8,background:'#07070c',opacity:0.4}}>
+                    <div style={{fontSize:9,fontWeight:700,color:'#334155'}}>{s.symbol}</div>
+                    <div style={{fontSize:8,color:'#1e293b',marginTop:2}}>No data</div>
+                  </div>
+                );
+                return(
+                  <div key={s.symbol} onClick={()=>{setSym(s.symbol);setView('chart');if(onSelectSym)onSelectSym(s.symbol);}} style={{border:'1px solid '+(d.change>=0?'#16a34a22':'#991b1b22'),padding:8,background:heatBg(d.change),cursor:'pointer',transition:'all 0.2s'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}}>
+                      <span style={{fontSize:10,fontWeight:700,color:TIER_COLOR[s.tier]||'#22d3ee'}}>{s.symbol}</span>
+                      <span style={{fontSize:9,fontWeight:700,color:heatColor(d.change)}}>{d.change>=0?'+':''}{d.change}%</span>
+                    </div>
+                    <div style={{fontSize:8,color:'#475569',marginBottom:1}}>{d.count} days · close ${d.close}</div>
+                    <div style={{height:3,background:'#0a0a10',borderRadius:2,overflow:'hidden',marginTop:4}}>
+                      <div style={{height:'100%',width:Math.abs(d.change)/10*100+'%',maxWidth:'100%',background:heatColor(d.change),borderRadius:2}}/>
+                    </div>
+                    <div style={{display:'flex',justifyContent:'space-between',marginTop:4,fontSize:7,color:'#334155'}}>
+                      <span>L ${d.low}</span><span>H ${d.high}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Table view */}
+      {view==='table'&&(
+        <div style={{flex:1,overflowY:'auto'}}>
+          {snapshotLoading?(
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:150,color:'#334155',fontSize:9,textTransform:'uppercase'}} className="pulse">Loading...</div>
+          ):(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead style={{position:'sticky',top:0,background:'#07070c',zIndex:10}}>
+                <tr>{['Symbol','Close','Open',days+'D Ret%',days+'D High',days+'D Low','Volatility','Days',''].map(h=><th key={h} style={th2}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {SEEDS.map(s=>{
+                  const d=snapshot[s.symbol];
+                  const change=d?.change??null;
+                  return(
+                    <tr key={s.symbol} style={{cursor:'pointer'}} onClick={()=>{setSym(s.symbol);setView('chart');if(onSelectSym)onSelectSym(s.symbol);}}>
+                      <td style={{...td2,fontWeight:700,color:TIER_COLOR[s.tier]||'#22d3ee'}}>{s.symbol}</td>
+                      <td style={{...td2,fontWeight:700}}>{d?'$'+d.close:'--'}</td>
+                      <td style={{...td2,color:'#64748b'}}>{d?'$'+d.open:'--'}</td>
+                      <td style={{...td2,fontWeight:700,color:change===null?'#334155':change>=0?'#22c55e':'#ef4444'}}>{change===null?'--':(change>=0?'+':'')+change+'%'}</td>
+                      <td style={{...td2,color:'#22c55e'}}>{d?'$'+d.high:'--'}</td>
+                      <td style={{...td2,color:'#ef4444'}}>{d?'$'+d.low:'--'}</td>
+                      <td style={{...td2,color:'#fbbf24'}}>{d?'--':'--'}</td>
+                      <td style={{...td2,color:'#475569'}}>{d?d.count:'--'}</td>
+                      <td style={td2}><button onClick={e=>{e.stopPropagation();setSym(s.symbol);setView('chart');}} style={{border:'1px solid #1e293b',color:'#38bdf8',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>Chart</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App(){
   const [stocks,setStocks]=useState(()=>SEEDS.map(s=>({...s})));
   const [portfolio,setPortfolio]=useState({cash:INITIAL_EQUITY,positions:[],history:[]});
@@ -281,7 +554,7 @@ function App(){
   const [manualAmt,setManualAmt]=useState(2000);
   const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
   const [mktStatus,setMktStatus]=useState(getMarketStatus());
-  const [cfg,setCfg]=useState({maxPositions:5,riskPct:1.5,minStrength:66,minRR:1.3,trailMult:0.9,cooldownSec:40,maxHoldSec:360});
+  const [cfg,setCfg]=useState({maxPositions:8,riskPct:1.2,minStrength:45,minRR:1.1,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
   // Demo
   const [demoState,setDemoState]=useState('idle');
   const [demoSym,setDemoSym]=useState('NVDA');
@@ -389,18 +662,30 @@ function App(){
     const id=setInterval(()=>{
       if(!autoOnRef.current)return;
       const c=cfgRef.current,port=portfolioRef.current;
-      if(port.positions.length>=c.maxPositions)return;
+      const openSlots=c.maxPositions-port.positions.length;
+      if(openSlots<=0)return;
       const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-      const held=new Set(port.positions.map(p=>p.symbol));const now=Date.now();
-      const best=stocksRef.current.filter(s=>s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(s.momentum??0)>-0.04&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)).sort((a,b)=>b.signalStrength-a.signalStrength)[0];
-      if(!best)return;
-      const riskAmt=equity*(c.riskPct/100),stopDist=best.price-best.stopLoss;
-      if(stopDist<=0)return;
-      const shares=f4(riskAmt/stopDist),tradeVal=f2(shares*best.price);
-      if(tradeVal>port.cash*0.92||tradeVal/equity>0.30)return;
-      setPortfolio(prev=>({...prev,cash:f2(prev.cash-tradeVal),positions:[...prev.positions,{id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true}]}));
-      addLog('[AUTO] '+best.symbol+' @ '+usd(best.price),'trade');
-    },1200);
+      const held=new Set(port.positions.map(p=>p.symbol));
+      const now=Date.now();
+      const candidates=stocksRef.current
+        .filter(s=>s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000))
+        .sort((a,b)=>b.signalStrength-a.signalStrength)
+        .slice(0,openSlots);
+      if(!candidates.length)return;
+      const newPositions=[];let cashLeft=port.cash;
+      for(const best of candidates){
+        const riskAmt=equity*(c.riskPct/100);
+        const stopDist=best.price-best.stopLoss;
+        if(stopDist<=0)continue;
+        const shares=f4(riskAmt/stopDist);
+        const tradeVal=f2(shares*best.price);
+        if(tradeVal>cashLeft*0.95||tradeVal/equity>0.20)continue;
+        cashLeft=f2(cashLeft-tradeVal);
+        newPositions.push({id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,entryType:best.entryType,enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true});
+        addLog('[AUTO·'+(best.entryType||'SIG')+'] '+best.symbol+' @ '+usd(best.price)+' '+best.signalStrength.toFixed(0)+'%','trade');
+      }
+      if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
+    },800);
     return()=>clearInterval(id);
   },[dataMode,addLog]);
 
@@ -534,7 +819,7 @@ function App(){
                     </div>
                   </td>
                   <td style={{...td,fontSize:9,color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#334155'}}>{s.uptrend?'↑':s.downtrend?'↓':'–'}</td>
-                  <td style={td}><span style={{fontSize:8,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'1px 4px'}}>{s.signal||'HOLD'}</span></td>
+                  <td style={td}><span style={{fontSize:8,fontWeight:700,color:s.signal==='BUY'?'#22c55e':s.signal==='SELL'?'#ef4444':'#475569',border:'1px solid '+(s.signal==='BUY'?'#16a34a33':s.signal==='SELL'?'#99182233':'#1e293b'),padding:'1px 4px'}}>{s.signal||'HOLD'}{s.entryType&&s.signal==='BUY'?<span style={{fontSize:6,color:'#64748b',marginLeft:3}}>{s.entryType}</span>:null}</span></td>
                   <td style={{...td,fontSize:8,color:'#64748b'}}>{(s.signalStrength??0).toFixed(0)}%</td>
                   <td style={td}>{s.signal==='BUY'&&!held&&<button onClick={e=>{e.stopPropagation();manualTrade(s);}} style={{border:'1px solid #16a34a',color:'#22c55e',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>+Buy</button>}{held&&<span style={{fontSize:7,color:'#334155'}}>HELD</span>}</td>
                 </tr>
@@ -562,7 +847,7 @@ function App(){
               const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
               return(
                 <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>⬡</span>}{pos.symbol}</td>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>⬡</span>}{pos.symbol}{pos.entryType&&<span style={{fontSize:6,color:'#475569',marginLeft:3}}>{pos.entryType}</span>}</td>
                   <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</td>
@@ -784,9 +1069,10 @@ function App(){
             {mobileTab==='analytics'&&analyticsPanel}
             {mobileTab==='engine'&&sidebarContent}
             {mobileTab==='log'&&logPanel}
+            {mobileTab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setMobileTab('chart');}}/>}
           </div>
           <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18'}}>
-            {[['chart','📈','Chart'],['screener','⬡','Scan'],['positions','💼','Pos'],['analytics','📊','Stats'],['engine','⚙️','Engine'],['log','📋','Log']].map(([t,icon,label])=>(
+            {[['chart','📈','Chart'],['screener','⬡','Scan'],['positions','💼','Pos'],['analytics','📊','Stats'],['history','📅','Hist'],['engine','⚙️','Eng']].map(([t,icon,label])=>(
               <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1,background:'none',border:'none',cursor:'pointer',padding:'5px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
                 <span style={{fontSize:13}}>{icon}</span>
                 <span style={{fontSize:6,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
@@ -798,7 +1084,7 @@ function App(){
         <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 260px',gap:1,background:'#0a0a10',minHeight:0,overflow:'hidden'}}>
           <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
-              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')']].map(([t,l])=>(
+              {[['chart','Chart'],['screener','Screener'],['positions','Pos ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Log ('+closed.length+')'],['history','📅 History']].map(([t,l])=>(
                 <button key={t} onClick={()=>setTab(t)} style={{padding:'6px 12px',fontSize:8,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.07em',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',color:tab===t?'#22d3ee':'#475569',background:'none',cursor:'pointer',border:'none',borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',whiteSpace:'nowrap'}}>
                   {l}
                 </button>
@@ -810,6 +1096,7 @@ function App(){
               {tab==='positions'&&positionsPanel}
               {tab==='analytics'&&analyticsPanel}
               {tab==='log'&&logPanel}
+              {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setTab('chart');}}/>}
             </div>
           </div>
           <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
