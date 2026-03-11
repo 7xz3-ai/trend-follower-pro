@@ -196,10 +196,11 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
       grid:{vertLines:{color:'#0d0d12'},horzLines:{color:'#0d0d12'}},
       crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
       rightPriceScale:{borderColor:'#1e293b'},
-      timeScale:{borderColor:'#1e293b',timeVisible:true,secondsVisible:true},
-      handleScroll:true,handleScale:true,
+      timeScale:{borderColor:\'#1e293b\',timeVisible:true,secondsVisible:true},
       width:containerRef.current.clientWidth,
       height:containerRef.current.clientHeight||300,
+      handleScroll:true,
+      handleScale:true,
     });
     const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#16a34a',wickDownColor:'#dc2626'});
     chartRef.current=chart;seriesRef.current=series;
