@@ -118,7 +118,7 @@ function computeSignal(prev,newPrice){
 
   // Fire BUY if any strategy qualifies at a lower threshold
   let signal='HOLD';
-  if(bestScore>=0.45&&!downtrend)signal='BUY';
+if(bestScore>=0.35&&!downtrend)signal=\'BUY\'; // Lowered threshold for more aggressive entry
   else if(rsi>=72||downtrend&&momentum<-0.08)signal='SELL';
 
   // Tighter stops/targets tuned per entry type
@@ -419,7 +419,8 @@ function HistoryPanel({onSelectSym}){
             <span style={{color:'#1e293b',fontSize:9}}>|</span>
             {/* Symbol select */}
             <select value={sym} onChange={e=>setSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 5px'}}>
-              {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+              <option value="ALL">ALL (Scan 20)</option>
+        {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
             </select>
             {/* Timeframe */}
             {[['1Day','1D'],['1Hour','1H'],['30Min','30m'],['15Min','15m'],['5Min','5m']].map(([v,l])=>(
@@ -555,19 +556,20 @@ function App(){
   const [manualAmt,setManualAmt]=useState(2000);
   const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
   const [mktStatus,setMktStatus]=useState(getMarketStatus());
-  const [cfg,setCfg]=useState({maxPositions:8,riskPct:1.2,minStrength:45,minRR:1.1,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
+  const [cfg,setCfg]=useState({maxPositions:20,riskPct:1.2,minStrength:35,minRR:1.0,trailMult:0.8,cooldownSec:10,maxHoldSec:180}); // Increased maxPositions to allow more simultaneous trades // Adjusted for more aggressive trading
   // Demo
   const [demoState,setDemoState]=useState('idle');
   const [demoSym,setDemoSym]=useState('NVDA');
   const [demoMode,setDemoMode]=useState('replay');
   const [demoProgress,setDemoProgress]=useState(0);
-  const [demoData,setDemoData]=useState([]);
+  const [demoData,setDemoData]=useState({}); // Changed to object for multi-symbol data
+  const isDemoMode = demoState === 'running' || demoState === 'paused' || demoState === 'loading' || demoState === 'done';
 
   const stocksRef=useRef(stocks);const portfolioRef=useRef(portfolio);
   const cfgRef=useRef(cfg);const autoOnRef=useRef(autoOn);
   const cooldowns=useRef({});const wsRef=useRef(null);
   const logBuf=useRef([]);const livePrices=useRef({});
-  const demoIdxRef=useRef(0);const demoDataRef=useRef([]);
+  const demoIdxRef=useRef(0);const demoDataRef=useRef({}); // Changed to object for multi-symbol data
 
   stocksRef.current=stocks;portfolioRef.current=portfolio;
   cfgRef.current=cfg;autoOnRef.current=autoOn;demoDataRef.current=demoData;
@@ -606,31 +608,49 @@ function App(){
   // Demo
   const startDemo=useCallback(async(sym,mode)=>{
     setDemoState('loading');setDemoSym(sym);setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
-    addLog('[DEMO] Loading data for '+sym+'...','info');
-    let bars=[];
-    try{
-      const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
-      const ys=yesterday.toISOString().split('T')[0];
-      const r=await fetch('/api/bars/'+sym+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
-      const d=await r.json();
-      if(d.bars&&d.bars.length>0){bars=d.bars;addLog('[DEMO] '+bars.length+' real bars loaded','trade');}
-      else addLog('[DEMO] No data — synthetic day','warn');
-    }catch(e){addLog('[DEMO] API error — synthetic day','warn');}
-    const seed=SEEDS.find(s=>s.symbol===sym)||SEEDS[0];
-    const data=generateDemoDay(seed,bars);
-    setDemoData(data);setDemoState('running');
-    addLog('[DEMO] '+(mode==='fast'?'Fast-forward':'Tick replay')+' started','trade');
+    const targetSymbols = sym === 'ALL' ? SEEDS.map(s=>s.symbol) : [sym];
+    addLog('[DEMO] Loading data for ' + (sym === 'ALL' ? 'ALL symbols' : sym) + '...', 'info');
+    
+    const allData = {};
+    for (const s of targetSymbols) {
+      let bars = [];
+      try {
+        const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+        const ys = yesterday.toISOString().split('T')[0];
+        const r = await fetch('/api/bars/'+s+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+        const d = await r.json();
+        if(d.bars && d.bars.length > 0) bars = d.bars;
+      } catch(e) {}
+      const seed = SEEDS.find(sd => sd.symbol === s) || SEEDS[0];
+      allData[s] = generateDemoDay(seed, bars);
+    }
+    
+    setDemoData(allData);
+    demoDataRef.current = allData;
+    setDemoState('running');
+    setAutoOn(true); // Automatically arm the engine for demo
+    addLog('[DEMO] Multi-symbol simulation started', 'trade');
   },[addLog]);
 
   useEffect(()=>{
     if(demoState!=='running')return;
     const interval=demoMode==='fast'?60:350;
     const id=setInterval(()=>{
-      const data=demoDataRef.current;
-      if(demoIdxRef.current>=data.length){setDemoState('done');addLog('[DEMO] Complete','info');clearInterval(id);return;}
-      const bar=data[demoIdxRef.current];
-      setDemoProgress(Math.round((demoIdxRef.current/data.length)*100));
-      processTick(demoSym,bar.c);
+      const allData = demoDataRef.current;
+      const symbols = Object.keys(allData);
+      if(symbols.length === 0) return;
+      
+      const maxLength = Math.max(...Object.values(allData).map(d => d.length));
+      if(demoIdxRef.current >= maxLength){setDemoState('done');addLog('[DEMO] Complete','info');clearInterval(id);return;}
+      
+      symbols.forEach(s => {
+        const data = allData[s];
+        if(demoIdxRef.current < data.length) {
+          processTick(s, data[demoIdxRef.current].c);
+        }
+      });
+      
+      setDemoProgress(Math.round((demoIdxRef.current / maxLength) * 100));
       demoIdxRef.current++;
     },interval);
     return()=>clearInterval(id);
@@ -671,7 +691,7 @@ function App(){
       const candidates=stocksRef.current
         .filter(s=>s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000))
         .sort((a,b)=>b.signalStrength-a.signalStrength)
-        .slice(0,openSlots);
+        ; // Removed slice to allow all qualifying candidates
       if(!candidates.length)return;
       const newPositions=[];let cashLeft=port.cash;
       for(const best of candidates){
@@ -752,6 +772,7 @@ function App(){
     <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
       <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>DEMO</span>
       <select value={demoSym} onChange={e=>setDemoSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+        <option value="ALL">ALL (Scan 20)</option>
         {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
       </select>
       <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
@@ -785,7 +806,7 @@ function App(){
         ))}
       </div>
       <div style={{flexGrow:1,minHeight:0}}>
-        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoSym===selectedSym?demoData:[]} isDemoMode={isDemoMode&&demoSym===selectedSym}/>
+        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoData[selectedSym] || []} isDemoMode={isDemoMode && demoData[selectedSym]}/>
       </div>
       {demoControls}
     </div>
