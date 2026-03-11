@@ -1180,77 +1180,114 @@ function App(){
     </div>
   );
 
-  const sidebarContent=(
-    <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
-      <div style={{padding:'10px 10px',borderBottom:'1px solid #0f0f18'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-          <span style={{fontSize:13,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:autoOn?'#a78bfa':'#475569'}}>Auto Engine</span>
-          <span style={{fontSize:11,padding:'5px 12px',border:'1px solid '+(autoOn?'#7c3aed':'#1e293b'),color:autoOn?'#a78bfa':'#475569',fontWeight:700,borderRadius:4}}>{autoOn?'ARMED':'STANDBY'}</span>
+  // ---- Right panel: engine controls, positions, log -------------------------
+  const rightPanel=(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto',gap:0}}>
+
+      {/* AUTO-EXECUTE   the main CTA */}
+      <div style={{padding:'14px 14px',borderBottom:'1px solid #0f0f18',background:autoOn?'#07110a':'#07070c',flexShrink:0}}>
+        <div style={{fontSize:11,color:autoOn?'#4ade80':'#64748b',marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}}>
+          {autoOn?'Engine is running   trades execute automatically':'Engine is off   trades need manual approval'}
         </div>
-        {[
-          {k:'maxPositions',l:'Max Pos',min:1,max:10,step:1,sfx:''},
-          {k:'riskPct',l:'Risk/Trade',min:0.5,max:5,step:0.5,sfx:'%'},
-          {k:'minStrength',l:'Min Sig',min:50,max:95,step:1,sfx:'%'},
-          {k:'minRR',l:'Min R:R',min:1,max:4,step:0.1,sfx:' '},
-          {k:'trailMult',l:'Trail ATR',min:0.4,max:3,step:0.1,sfx:' '},
-          {k:'cooldownSec',l:'Cooldown',min:10,max:300,step:5,sfx:'s'},
-          {k:'maxHoldSec',l:'Max Hold',min:60,max:900,step:30,sfx:'s'},
-        ].map(({k,l,min,max,step,sfx})=>(
-          <div key={k} style={{marginBottom:6}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:8,marginBottom:2}}>
-              <span style={{color:'#475569'}}>{l}</span>
-              <span style={{fontWeight:700,color:autoOn?'#334155':'#e2e8f0'}}>{cfg[k]}{sfx}</span>
+        <button
+          onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Auto-Execute ON':'[ENGINE] Auto-Execute OFF',n?'trade':'info');return n;})}
+          style={{
+            width:'100%',padding:'14px 0',fontSize:16,fontWeight:800,
+            border:'2px solid '+(autoOn?'#22c55e':'#334155'),
+            color:autoOn?'#fff':'#94a3b8',
+            background:autoOn?'linear-gradient(135deg,#14532d,#166534)':'#0d0d14',
+            borderRadius:6,cursor:'pointer',letterSpacing:'0.04em',
+            boxShadow:autoOn?'0 0 20px #22c55e44':'none',
+            transition:'all 0.2s'
+          }}>
+          {autoOn?'AUTO-EXECUTE: ON  --  Click to Pause':'AUTO-EXECUTE: OFF  --  Click to Activate'}
+        </button>
+        {autoOn&&(
+          <div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap'}}>
+            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+              <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>Open slots</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#22c55e'}}>{cfg.maxPositions-portfolio.positions.length}</div>
             </div>
-            <input type="range" min={min} max={max} step={step} value={cfg[k]} disabled={autoOn} onChange={e=>setCfg(p=>({...p,[k]:Number(e.target.value)}))} style={{height:3}}/>
+            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+              <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>Signals</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#22c55e'}}>{buys.length}</div>
+            </div>
+            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+              <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>In trades</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#a78bfa'}}>{portfolio.positions.length}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Open Positions */}
+      <div style={{flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
+        <div style={{padding:'8px 14px',fontSize:11,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em',background:'#08080f',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span>Open Positions</span>
+          <span style={{color:openPnl>=0?'#22c55e':'#ef4444',fontWeight:700}}>{pnlFmt(openPnl)}</span>
+        </div>
+        {portfolio.positions.length===0?(
+          <div style={{padding:'16px',textAlign:'center',color:'#1e293b',fontSize:12}}>{autoOn?'Scanning for entries...':'Activate auto-execute to start'}</div>
+        ):(
+          <div style={{maxHeight:200,overflowY:'auto'}}>
+            {portfolio.positions.map(pos=>{
+              const pl=(pos.currentPrice-pos.entryPrice)*pos.shares;
+              const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
+              const seed=SEEDS.find(s=>s.symbol===pos.symbol);
+              return(
+                <div key={pos.id} style={{padding:'10px 14px',borderBottom:'1px solid #0a0a12',cursor:'pointer',background:pl>=0?'#060e06':'#0e0606'}}
+                  onClick={()=>{setSelectedSym(pos.symbol);}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                    <span style={{fontWeight:800,fontSize:14,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{pos.symbol}</span>
+                    <span style={{fontWeight:700,fontSize:14,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569',marginBottom:6}}>
+                    <span>Entry {usd(pos.entryPrice)}</span>
+                    <span>Now {usd(pos.currentPrice)}</span>
+                    <span style={{color:'#334155'}}>{heldS}s</span>
+                  </div>
+                  <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <span style={{fontSize:10,color:'#ef4444'}}>SL {usd(pos.stopLoss)}</span>
+                    <span style={{fontSize:10,color:'#22c55e'}}>TP {usd(pos.takeProfit)}</span>
+                    <button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Engine Settings */}
+      <div style={{padding:'10px 14px',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+        <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:8}}>Engine Settings</div>
+        {[
+          {k:'maxPositions',l:'Max open trades',min:1,max:10,step:1,sfx:''},
+          {k:'riskPct',l:'Risk per trade',min:0.5,max:5,step:0.5,sfx:'%'},
+          {k:'minStrength',l:'Min signal strength',min:30,max:95,step:1,sfx:'%'},
+          {k:'cooldownSec',l:'Cooldown between',min:5,max:300,step:5,sfx:'s'},
+          {k:'maxHoldSec',l:'Max hold time',min:30,max:900,step:30,sfx:'s'},
+        ].map(({k,l,min,max,step,sfx})=>(
+          <div key={k} style={{marginBottom:8}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
+              <span style={{color:'#64748b'}}>{l}</span>
+              <span style={{fontWeight:700,color:'#e2e8f0'}}>{cfg[k]}{sfx}</span>
+            </div>
+            <input type="range" min={min} max={max} step={step} value={cfg[k]}
+              onChange={e=>setCfg(p=>({...p,[k]:Number(e.target.value)}))}
+              style={{width:'100%',height:4,accentColor:'#a78bfa'}}/>
           </div>
         ))}
-        <div style={{marginTop:6}}>
-          <div style={{fontSize:7,color:'#475569',marginBottom:2}}>Manual $</div>
-          <input type="number" value={manualAmt} onChange={e=>setManualAmt(Number(e.target.value))} style={{width:'100%',background:'#0a0a10',border:'1px solid #1e293b',color:'#fbbf24',padding:'3px 7px',fontSize:10}} min="100"/>
-        </div>
       </div>
+
+      {/* System Log */}
       <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
-        <div style={{padding:'5px 10px',fontSize:7,fontWeight:700,color:'#ca8a04',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18'}}>* Top Signals</div>
-        <div style={{overflowY:'auto',flex:1,padding:5,display:'flex',flexDirection:'column',gap:4}}>
-          {!isActive&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}}>Connect to begin</div>}
-          {isActive&&buys.length===0&&<div style={{color:'#1e293b',fontSize:7,textAlign:'center',padding:12,textTransform:'uppercase'}} className="pulse">Scanning...</div>}
-          {isActive&&buys.slice(0,5).map(s=>{
-            const held=portfolio.positions.some(p=>p.symbol===s.symbol);
-            const qual=s.signalStrength>=cfg.minStrength&&(s.riskReward||0)>=cfg.minRR;
-            return(
-              <div key={s.symbol} style={{border:'1px solid '+(held?'#1e293b':qual?'#16a34a33':'#1e293b'),padding:6,opacity:held?0.4:1,cursor:'pointer'}} onClick={()=>{setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:3}}>
-                  <div style={{display:'flex',alignItems:'center',gap:4}}>
-                    <span style={{fontSize:6,padding:'1px 3px',border:'1px solid #16a34a',color:'#22c55e',fontWeight:700}}>BUY</span>
-                    <span style={{fontWeight:700,color:TIER_COLOR[SEEDS.find(sd=>sd.symbol===s.symbol)?.tier]||'#22d3ee',fontSize:10}}>{s.symbol}</span>
-                    {qual&&<span style={{fontSize:6,color:'#22c55e'}}>AUTO </span>}
-                  </div>
-                  <span style={{fontWeight:700,color:'#22c55e',fontSize:9}}>{usd(s.price)}</span>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:2,marginBottom:3}}>
-                  <div style={{background:'#0a0a10',padding:'2px 4px'}}><div style={{fontSize:6,color:'#334155'}}>SL</div><div style={{color:'#ef4444',fontWeight:700,fontSize:8}}>{usd(s.stopLoss)}</div></div>
-                  <div style={{background:'#0a0a10',padding:'2px 4px'}}><div style={{fontSize:6,color:'#334155'}}>TP</div><div style={{color:'#22c55e',fontWeight:700,fontSize:8}}>{usd(s.takeProfit)}</div></div>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:3}}>
-                  <div style={{flex:1,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:s.signalStrength+'%',background:'#22c55e',borderRadius:2,transition:'width 0.3s'}}/></div>
-                  <span style={{fontSize:7,color:'#22c55e',fontWeight:700}}>{s.signalStrength.toFixed(0)}%</span>
-                  <span style={{fontSize:7,color:'#334155'}}>1:{s.riskReward}</span>
-                </div>
-                <button onClick={e=>{e.stopPropagation();!held&&manualTrade(s);}} disabled={held} style={{width:'100%',padding:'8px',fontSize:13,fontWeight:700,border:'2px solid '+(held?'#1e293b':'#16a34a'),color:held?'#334155':'#22c55e',background:held?'transparent':'#0a1a0a',cursor:held?'not-allowed':'pointer',borderRadius:4}}>
-                  {held?'Already Open':'Execute Trade'}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{maxHeight:120,display:'flex',flexDirection:'column',borderTop:'1px solid #0f0f18'}}>
-        <div style={{padding:'3px 10px',fontSize:7,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>System Log</div>
-        <div style={{overflowY:'auto',flex:1,padding:'2px 8px',display:'flex',flexDirection:'column',gap:1}}>
-          {sysLog.length===0&&<div style={{color:'#1e293b',fontSize:7,padding:2}}>Awaiting...</div>}
+        <div style={{padding:'6px 14px',fontSize:10,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em',borderBottom:'1px solid #0f0f18',background:'#08080f',flexShrink:0}}>Activity Log</div>
+        <div style={{overflowY:'auto',flex:1,padding:'4px 10px',display:'flex',flexDirection:'column',gap:2}}>
+          {sysLog.length===0&&<div style={{color:'#1e293b',fontSize:11,padding:8,textAlign:'center'}}>Awaiting activity...</div>}
           {sysLog.map((e,i)=>(
-            <div key={i} style={{display:'flex',gap:4,fontSize:7,lineHeight:1.6}}>
-              <span style={{color:'#1e293b',flexShrink:0}}>{e.t}</span>
+            <div key={i} style={{display:'flex',gap:6,fontSize:11,lineHeight:1.6,padding:'1px 0'}}>
+              <span style={{color:'#334155',flexShrink:0,fontSize:10}}>{e.t}</span>
               <span style={{wordBreak:'break-all',color:e.type==='trade'?'#22d3ee':e.type==='profit'?'#22c55e':e.type==='loss'?'#ef4444':e.type==='warn'?'#f59e0b':'#475569'}}>{e.msg}</span>
             </div>
           ))}
@@ -1259,46 +1296,32 @@ function App(){
     </div>
   );
 
-  const activeTab=isMobile?mobileTab:tab;
-  const setActiveTab=isMobile?setMobileTab:setTab;
-
   return(
-    <div style={{minHeight:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
-      {/* Header */}
-      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'10px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+    <div style={{height:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
+
+      {/*    HEADER    */}
+      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:10,height:10,borderRadius:'50%',background:modeColor,boxShadow:'0 0 8px '+modeColor}} className={isActive?'pulse':''}/>
           <span style={{fontSize:17,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
-          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
-          {isDemoMode&&<span style={{fontSize:11,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'3px 8px',fontWeight:700}} className="pulse">DEMO {demoProgress}%</span>}
-          <div style={{display:'flex',alignItems:'center',gap:6}}>
-            <div style={{width:8,height:8,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
-            <span style={{fontSize:11,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
-            <span style={{fontSize:11,color:'#475569'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
-            <span style={{fontSize:10,color:'#334155'}}>  {mktStatus.next}</span>
-          </div>
+          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700,borderRadius:3}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
+          {isDemoMode&&<span style={{fontSize:11,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'3px 8px',fontWeight:700,borderRadius:3}} className="pulse">DEMO {demoProgress}%</span>}
+          <div style={{width:8,height:8,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
+          <span style={{fontSize:11,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
+          <span style={{fontSize:11,color:'#475569'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
           <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
           <span style={{fontSize:12,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
-          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#ef4444',border:'1px solid #ef444444',padding:'3px 8px'}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
-          <button onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Armed':'[ENGINE] Disarmed',n?'trade':'info');return n;})} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid '+(autoOn?'#a78bfa':'#1e293b'),color:autoOn?'#a78bfa':'#64748b',background:autoOn?'#0d001822':'transparent',cursor:'pointer'}}>{autoOn?'Disarm Engine':'Arm Engine'}</button>
-          {dataMode==='idle'?<button onClick={connectLive} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c100044',cursor:'pointer'}}>Connect</button>:<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disc.');}} style={{padding:'7px 16px',fontSize:12,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer'}}>Disconnect</button>}
+          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#ef4444',border:'1px solid #ef444433',padding:'3px 8px',borderRadius:3}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
+          {dataMode==='idle'
+            ?<button onClick={connectLive} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c100044',cursor:'pointer',borderRadius:4}}>Connect Live</button>
+            :<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disconnected.');}} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer',borderRadius:4}}>Disconnect</button>
+          }
         </div>
       </div>
 
-      {/* Risk Alerts */}
-      {riskAlerts.length>0&&(
-        <div style={{padding:'3px 10px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
-          {riskAlerts.map((a,i)=>(
-            <span key={i} style={{fontSize:12,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'4px 10px',borderRadius:3}}>
-              {a.level==='danger'?' ':a.level==='warn'?' ':' '} {a.msg}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* KPI bar - hide on mobile */}
+      {/*    KPI BAR    */}
       {!isMobile&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#0a0a10',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
           {[
@@ -1309,16 +1332,27 @@ function App(){
             {l:'CASH',v:'$'+portfolio.cash.toLocaleString('en-US',{maximumFractionDigits:0}),s:((portfolio.cash/equity)*100).toFixed(0)+'%',vc:'#fbbf24'},
             {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#facc15'},
           ].map(({l,v,s,vc},i)=>(
-            <div key={i} style={{background:'#07070c',padding:'10px 14px'}}>
-              <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:3}}>{l}</div>
-              <div style={{fontSize:16,fontWeight:700,color:vc}}>{v}</div>
-              <div style={{fontSize:11,color:'#64748b',marginTop:2}}>{s}</div>
+            <div key={i} style={{background:'#07070c',padding:'8px 14px'}}>
+              <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',marginBottom:2}}>{l}</div>
+              <div style={{fontSize:15,fontWeight:700,color:vc}}>{v}</div>
+              <div style={{fontSize:10,color:'#475569',marginTop:1}}>{s}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Main body */}
+      {/*    RISK ALERTS    */}
+      {riskAlerts.length>0&&(
+        <div style={{padding:'4px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
+          {riskAlerts.map((a,i)=>(
+            <span key={i} style={{fontSize:11,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'3px 8px',borderRadius:3}}>
+              {a.msg}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/*    MAIN BODY    */}
       {isMobile?(
         <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
           <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
@@ -1326,56 +1360,56 @@ function App(){
             {mobileTab==='screener'&&screenerPanel}
             {mobileTab==='positions'&&positionsPanel}
             {mobileTab==='analytics'&&analyticsPanel}
-            {mobileTab==='engine'&&sidebarContent}
+            {mobileTab==='engine'&&rightPanel}
             {mobileTab==='log'&&logPanel}
             {mobileTab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setMobileTab('chart');}}/>}
           </div>
-          <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18'}}>
-            {[['chart',' ','Chart'],['screener','*','Scan'],['positions',' ','Pos'],['analytics',' ','Stats'],['history',' ','Hist'],['engine','  ','Eng']].map(([t,icon,label])=>(
+          <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18',flexShrink:0}}>
+            {[['chart','~','Chart'],['screener','#','Scan'],['positions','$','Pos'],['analytics','%','Stats'],['engine','!','Engine']].map(([t,icon,label])=>(
               <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',cursor:'pointer',padding:'8px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
-                <span style={{fontSize:16}}>{icon}</span>
-                <span style={{fontSize:9,color:mobileTab===t?'#22d3ee':'#334155',textTransform:'uppercase',fontWeight:700}}>{label}</span>
+                <span style={{fontSize:14,color:mobileTab===t?'#22d3ee':'#475569'}}>{icon}</span>
+                <span style={{fontSize:9,color:mobileTab===t?'#22d3ee':'#475569',textTransform:'uppercase',fontWeight:700}}>{label}</span>
               </button>
             ))}
           </div>
         </div>
       ):(
-        /* Desktop 3-panel layout */
-        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 380px',gap:0,background:'#0a0a10',minHeight:0,overflow:'hidden',borderTop:'1px solid #0f0f18'}}>
+        /* ====== DESKTOP LAYOUT ====== */
+        <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 320px',minHeight:0,overflow:'hidden'}}>
 
-          {/* LEFT   Screener always visible, with sub-tabs below for other views */}
+          {/* ---- LEFT: Scanner top, Chart bottom ---- */}
           <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',borderRight:'1px solid #0f0f14'}}>
-            {/* Sub-tabs: screener is default, others accessible */}
-            <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
-              {[['screener','Scanner'],['positions','Positions ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Trade Log'],['history','History']].map(([t,l])=>(
-                <button key={t} onClick={()=>setTab(t)}
-                  style={{padding:'10px 16px',fontSize:12,fontWeight:700,
-                    borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',
-                    color:tab===t?'#22d3ee':'#475569',
-                    background:'none',border:'none',cursor:'pointer',whiteSpace:'nowrap',
-                    letterSpacing:'0.03em'}}>
-                  {l}
-                </button>
-              ))}
-            </div>
-            <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
-              {tab==='screener'&&screenerPanel}
-              {tab==='positions'&&positionsPanel}
-              {tab==='analytics'&&analyticsPanel}
-              {tab==='log'&&logPanel}
-              {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setTab('chart');}}/>}
-            </div>
-          </div>
 
-          {/* RIGHT   Chart on top, engine+signals+log below */}
-          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',background:'#07070c'}}>
-            {/* Chart panel   fixed height */}
-            <div style={{height:320,flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
-              {/* Symbol strip */}
-              <div style={{display:'flex',gap:2,padding:'6px 8px',flexWrap:'wrap',borderBottom:'1px solid #0a0a12',background:'#060608',overflowX:'auto'}}>
+            {/* Scanner   top half */}
+            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',borderBottom:'2px solid #0f0f18'}}>
+              {/* Tab bar */}
+              <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0,overflowX:'auto'}}>
+                {[['screener','Scanner'],['positions','Positions ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Trade Log'],['history','History']].map(([t,l])=>(
+                  <button key={t} onClick={()=>setTab(t)}
+                    style={{padding:'9px 16px',fontSize:12,fontWeight:700,
+                      borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',
+                      color:tab===t?'#22d3ee':'#475569',
+                      background:'none',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
+                {tab==='screener'&&screenerPanel}
+                {tab==='positions'&&positionsPanel}
+                {tab==='analytics'&&analyticsPanel}
+                {tab==='log'&&logPanel}
+                {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);}}/>}
+              </div>
+            </div>
+
+            {/* Chart   bottom half, fills the blank space */}
+            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',background:'#060608'}}>
+              {/* Symbol picker */}
+              <div style={{display:'flex',gap:2,padding:'5px 10px',flexWrap:'wrap',borderBottom:'1px solid #0a0a12',background:'#07070c',flexShrink:0,overflowX:'auto'}}>
                 {SEEDS.map(s=>(
                   <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)}
-                    style={{padding:'3px 7px',fontSize:11,fontWeight:700,
+                    style={{padding:'3px 8px',fontSize:11,fontWeight:700,
                       border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'88':'#111'),
                       color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',
                       background:selectedSym===s.symbol?TIER_COLOR[s.tier]+'11':'transparent',
@@ -1384,16 +1418,23 @@ function App(){
                   </button>
                 ))}
               </div>
-              <div style={{height:'calc(100% - 38px)'}}>
-                <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]} isDemoMode={isDemoMode}/>
+              {/* Demo controls inline above chart */}
+              {demoControls}
+              {/* Chart fills remaining space */}
+              <div style={{flex:1,minHeight:0}}>
+                <StockChart
+                  symbol={selectedSym}
+                  livePrice={livePrices.current[selectedSym]}
+                  demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]}
+                  isDemoMode={isDemoMode}/>
               </div>
             </div>
-            {/* Demo controls */}
-            {demoControls}
-            {/* Engine + signals scroll area */}
-            <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
-              {sidebarContent}
-            </div>
+
+          </div>
+
+          {/* ---- RIGHT: Auto-Execute + Positions + Settings + Log ---- */}
+          <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
+            {rightPanel}
           </div>
 
         </div>
