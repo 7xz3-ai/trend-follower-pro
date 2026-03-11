@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -78,56 +77,81 @@ function getMarketStatus(){
   return{status,isOpen,isPre,isAH,etTime:et,next};
 }
 
+// ── Signal Engine v4 — decisive, multi-strategy, high trade frequency ─────────
 function computeSignal(prev,newPrice){
   const vol=prev.vol??0.02;
   const atr=f2(newPrice*vol);
-  // Multiple EMAs for richer context
-  const ema5=f2(newPrice*0.9988),ema9=f2(newPrice*0.9978),ema21=f2(newPrice*0.9942);
-  const sma50=f2(newPrice*0.9845),sma200=f2(newPrice*0.9230);
-  // RSI with faster mean-reversion
-  const prevRsi=prev.rsi??prev.baseRsi??50;
-  const rsi=clamp(prevRsi+(50-prevRsi)*0.08+(Math.random()*5-2.5),8,92);
-  const momentum=pctOf(newPrice,prev.price??newPrice);
-  // Trend states
-  const uptrend=newPrice>ema21&&ema21>sma50&&sma50>sma200;
-  const weakUptrend=newPrice>ema21&&ema21>sma50;
-  const downtrend=newPrice<ema21&&ema21<sma50;
-  const aboveEma9=newPrice>ema9,aboveEma5=newPrice>ema5;
 
-  // --- Entry type detection (multiple strategies) ---
-  // 1. Trend continuation: price pulls back to ema9, RSI reset, re-accelerating
-  const trendPullback=weakUptrend&&aboveEma9&&rsi>=35&&rsi<=55&&momentum>=-0.05&&momentum<=0.15;
-  // 2. Momentum breakout: strong move up with volume surrogate (high vol symbol)
-  const momentumBreak=vol>=0.025&&momentum>0.05&&momentum<0.6&&rsi>=45&&rsi<=68&&aboveEma5;
-  // 3. RSI oversold bounce: RSI dipped and recovering, any trend
-  const rsiBounce=rsi>=28&&rsi<=42&&momentum>=-0.02&&!downtrend;
-  // 4. EMA crossover surrogate: ema5 just crossed above ema9 (price momentum signal)
-  const emaCross=ema5>ema9&&aboveEma5&&rsi>=40&&rsi<=65&&momentum>0;
-  // 5. Range scalp: sideways market, price near lower band, RSI neutral-low
-  const rangeScalp=!uptrend&&!downtrend&&rsi>=38&&rsi<=52&&momentum>-0.03&&momentum<0.08;
+  // Persistent EMA state — approximate from price history
+  const prevEma9=prev.ema9??newPrice,prevEma21=prev.ema21??newPrice;
+  const prevEma50=prev.ema50??newPrice,prevEma200=prev.ema200??newPrice;
+  const ema9=f2(newPrice*0.2+prevEma9*0.8);
+  const ema21=f2(newPrice*0.09+prevEma21*0.91);
+  const ema50=f2(newPrice*0.038+prevEma50*0.962);
+  const ema200=f2(newPrice*0.01+prevEma200*0.99);
+  const ema5=f2(newPrice*0.333+((prev.ema5??newPrice)*0.667));
 
-  // Score each strategy
-  const s1=trendPullback?(0.55+clamp((55-rsi)/55,0,0.3)+clamp(vol/0.05,0,0.15)):0;
-  const s2=momentumBreak?(0.50+clamp(momentum/0.4,0,0.25)+clamp(vol/0.06,0,0.15)):0;
-  const s3=rsiBounce?(0.52+clamp((42-rsi)/42,0,0.28)+clamp(vol/0.05,0,0.10)):0;
-  const s4=emaCross?(0.48+clamp(momentum/0.3,0,0.25)+clamp(vol/0.05,0,0.12)):0;
-  const s5=rangeScalp?(0.42+clamp((52-rsi)/52,0,0.20)+clamp(vol/0.06,0,0.08)):0;
+  // Persistent RSI — Wilder smoothing approximation
+  const prevRsi=prev.rsi??50;
+  const chg=newPrice-(prev.price??newPrice);
+  const gain=chg>0?chg:0,loss=chg<0?-chg:0;
+  const prevAvgGain=prev.avgGain??(atr*0.5),prevAvgLoss=prev.avgLoss??(atr*0.5);
+  const avgGain=f4(prevAvgGain*0.857+gain*0.143);
+  const avgLoss=f4(prevAvgLoss*0.857+loss*0.143);
+  const rs=avgLoss===0?100:avgGain/avgLoss;
+  const rsi=f2(clamp(100-(100/(1+rs)),5,95));
+
+  // Momentum — rate of change over last tick
+  const momentum=+pctOf(newPrice,prev.price??newPrice).toFixed(4);
+
+  // Trend classification
+  const uptrend=newPrice>ema21&&ema21>ema50&&ema50>ema200;
+  const weakUp=newPrice>ema21&&ema21>ema50;
+  const downtrend=newPrice<ema21&&ema21<ema50;
+
+  // ── 5 Entry Strategies ────────────────────────────────────────────────────
+  // PULLBACK: price touched ema9 then bouncing, RSI just reset
+  const pullback=weakUp&&newPrice>ema9&&rsi>=32&&rsi<=56&&momentum>-0.08&&momentum<0.20;
+
+  // BREAKOUT: strong candle above all EMAs, RSI not overbought
+  const breakout=(vol>=0.020)&&newPrice>ema5&&momentum>0.04&&rsi>=48&&rsi<=72;
+
+  // BOUNCE: RSI washed out, price recovering from low
+  const bounce=rsi>=25&&rsi<=44&&momentum>-0.05&&newPrice>ema9*0.998&&!downtrend;
+
+  // CROSS: ema5 freshly above ema9 — short-term momentum flip
+  const cross=ema5>ema9&&newPrice>ema9&&rsi>=38&&rsi<=68&&momentum>=0;
+
+  // SCALP: any conditions just price above ema21 with positive momentum
+  const scalp=newPrice>ema21&&momentum>0.01&&rsi>=35&&rsi<=65&&!downtrend;
+
+  // Score — higher base scores so more trades fire
+  const s1=pullback?(0.62+clamp((56-rsi)/56,0,0.25)+clamp(vol/0.05,0,0.13)):0;
+  const s2=breakout?(0.60+clamp(momentum/0.3,0,0.22)+clamp(vol/0.06,0,0.13)):0;
+  const s3=bounce?(0.60+clamp((44-rsi)/44,0,0.25)+clamp(vol/0.05,0,0.10)):0;
+  const s4=cross?(0.56+clamp(momentum/0.25,0,0.22)+clamp(vol/0.05,0,0.12)):0;
+  const s5=scalp?(0.50+clamp(momentum/0.20,0,0.20)+clamp(vol/0.06,0,0.10)):0;
+
   const bestScore=Math.max(s1,s2,s3,s4,s5);
   const entryType=bestScore===s1?'PULLBACK':bestScore===s2?'BREAKOUT':bestScore===s3?'BOUNCE':bestScore===s4?'CROSS':'SCALP';
-  const strength=clamp(bestScore*100+(Math.random()*4-2),0,98);
+  const strength=clamp(bestScore*100,10,98);
 
-  // Fire BUY if any strategy qualifies at a lower threshold
+  // Signal — fire BUY on any qualifying strategy, not downtrend
   let signal='HOLD';
-  if(bestScore>=0.45&&!downtrend)signal='BUY';
-  else if(rsi>=72||downtrend&&momentum<-0.08)signal='SELL';
+  if(bestScore>=0.50&&!downtrend)signal='BUY';
+  else if(rsi>=75||(downtrend&&momentum<-0.10))signal='SELL';
 
-  // Tighter stops/targets tuned per entry type
-  const slMult={'PULLBACK':1.2,'BREAKOUT':1.0,'BOUNCE':1.4,'CROSS':1.1,'SCALP':0.8}[entryType]||1.2;
-  const tpMult={'PULLBACK':2.2,'BREAKOUT':2.8,'BOUNCE':1.8,'CROSS':2.0,'SCALP':1.5}[entryType]||2.0;
+  // SL/TP per strategy — tighter on scalps, wider on breakouts
+  const slMult={PULLBACK:1.1,BREAKOUT:0.9,BOUNCE:1.3,CROSS:1.0,SCALP:0.7}[entryType]||1.0;
+  const tpMult={PULLBACK:2.2,BREAKOUT:3.0,BOUNCE:1.8,CROSS:2.0,SCALP:1.4}[entryType]||2.0;
   const stopLoss=signal==='BUY'?f2(newPrice-atr*slMult):null;
   const takeProfit=signal==='BUY'?f2(newPrice+atr*tpMult):null;
   const riskReward=stopLoss&&takeProfit?+((takeProfit-newPrice)/(newPrice-stopLoss)).toFixed(2):null;
-  return{atr,ema5,ema9,ema21,sma50,sma200,rsi:f2(rsi),momentum:+momentum.toFixed(4),uptrend,weakUptrend,downtrend,signal,signalStrength:f2(strength),entryType:signal==='BUY'?entryType:null,stopLoss,takeProfit,riskReward};
+
+  return{atr,ema5,ema9,ema21,ema50,ema200,avgGain,avgLoss,
+    rsi,momentum,uptrend,weakUp,downtrend,
+    signal,signalStrength:f2(strength),entryType:signal==='BUY'?entryType:null,
+    stopLoss,takeProfit,riskReward};
 }
 
 function evaluateExit(pos,newPrice,sig,cfg,nowMs){
@@ -136,30 +160,41 @@ function evaluateExit(pos,newPrice,sig,cfg,nowMs){
   const trailSL=f2(hwm-sig.atr*cfg.trailMult);
   const bestSL=Math.max(pos.stopLoss,trailSL);
   const heldSec=(nowMs-pos.enteredAt)/1000;
-  const profInAtrs=profitPts/(pos.atr||1);
-  // Move to breakeven faster (0.6 ATRs profit instead of 1.0)
-  const beSL=profInAtrs>=0.6?Math.max(bestSL,pos.entryPrice):bestSL;
-  if(newPrice<=beSL)return{close:true,reason:beSL>=pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
+  const profInAtrs=profitPts/(pos.atr||0.001);
+  // Breakeven fast — as soon as 0.5 ATR in profit
+  const beSL=profInAtrs>=0.5?Math.max(bestSL,pos.entryPrice+0.01):bestSL;
+  if(newPrice<=beSL)return{close:true,reason:beSL>pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
   if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
-  // Earlier RSI peak exit — don't wait for full reversal
-  if(sig.rsi>=65&&sig.momentum<0.02&&profInAtrs>=0.5)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
-  if(profInAtrs>=1.0&&sig.momentum<-0.05)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
-  if(profInAtrs>=0.8&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
+  if(sig.rsi>=68&&sig.momentum<=0&&profInAtrs>=0.5)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
+  if(profInAtrs>=0.8&&sig.momentum<-0.04)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
+  if(profInAtrs>=0.7&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
   if(heldSec>=cfg.maxHoldSec)return{close:true,reason:'TIME_EXIT',hwm,newSL:beSL};
   return{close:false,reason:null,hwm,newSL:beSL};
 }
 
-function generateDemoDay(seed,bars){
-  if(bars&&bars.length>0)return bars.map(b=>({t:Math.floor(new Date(b.t).getTime()/1000),o:b.o,h:b.h,l:b.l,c:b.c}));
+// Generate realistic intraday bars for ONE symbol with a market-regime bias
+function generateSymbolDay(seed,realBars,marketBias){
+  if(realBars&&realBars.length>0)
+    return realBars.map(b=>({t:Math.floor(new Date(b.t).getTime()/1000),o:b.o,h:b.h,l:b.l,c:b.c}));
   const result=[];
-  let price=seed.price*(0.97+Math.random()*0.06);
-  const baseTs=Math.floor(Date.now()/1000)-23400;
+  // Each symbol has its own character: some trend up, some chop, some down
+  const symBias=marketBias+(Math.random()-0.5)*0.0004;
+  let price=seed.price*(0.985+Math.random()*0.03);
+  const baseTs=Math.floor(Date.now()/1000)-23400; // 6.5 hours ago = 9:30 ET
+  // Build intraday regime: open range (0-30), trend (30-200), reversal (200-390)
   for(let i=0;i<390;i++){
-    const drift=i<60?0.00015:i<200?0.00008:-0.00005;
-    price=Math.max(0.01,f2(price*(1+drift+seed.vol*0.28*(Math.random()*2-1))));
-    const o=f2(price*(1+(Math.random()-0.5)*0.002));
-    const h=f2(Math.max(price,o)*(1+Math.random()*0.003));
-    const l=f2(Math.min(price,o)*(1-Math.random()*0.003));
+    const phase=i<30?'open':i<200?'trend':'late';
+    const phaseDrift={
+      open:symBias*0.5+(Math.random()-0.48)*0.0006,
+      trend:symBias+(Math.random()-0.45)*0.0003,
+      late:symBias*0.3+(Math.random()-0.52)*0.0004,
+    }[phase];
+    const noise=seed.vol*0.18*(Math.random()*2-1);
+    price=Math.max(0.01,f2(price*(1+phaseDrift+noise)));
+    const spread=price*seed.vol*0.08;
+    const o=f2(price+(Math.random()-0.5)*spread);
+    const h=f2(Math.max(price,o)*(1+Math.random()*seed.vol*0.1));
+    const l=f2(Math.min(price,o)*(1-Math.random()*seed.vol*0.1));
     result.push({t:baseTs+i*60,o,h,l,c:price});
   }
   return result;
@@ -337,7 +372,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch bars for selected symbol
   const fetchBars=useCallback(()=>{
     setLoading(true);setErr(null);
-    fetch(`/api/history/${sym}?timeframe=${tf}&days=${days}`)
+    fetch(\`/api/history/\${sym}?timeframe=\${tf}&days=\${days}\`)
       .then(r=>r.json())
       .then(data=>{
         if(data.error)throw new Error(data.error);
@@ -356,7 +391,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch snapshot for all symbols (heatmap view)
   const fetchSnapshot=useCallback(()=>{
     setSnapshotLoading(true);
-    fetch(`/api/history/multi/snapshot?days=${days}`)
+    fetch(\`/api/history/multi/snapshot?days=\${days}\`)
       .then(r=>r.json())
       .then(data=>{
         const snap={};
@@ -557,20 +592,25 @@ function App(){
   const [mktStatus,setMktStatus]=useState(getMarketStatus());
   const [cfg,setCfg]=useState({maxPositions:8,riskPct:1.2,minStrength:45,minRR:1.1,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
   // Demo
-  const [demoState,setDemoState]=useState('idle');
-  const [demoSym,setDemoSym]=useState('NVDA');
-  const [demoMode,setDemoMode]=useState('replay');
+  const [demoState,setDemoState]=useState('idle'); // idle|loading|running|paused|done
+  const [demoSym,setDemoSym]=useState('NVDA');       // for chart display
+  const [demoMode,setDemoMode]=useState('fast');      // replay|fast
   const [demoProgress,setDemoProgress]=useState(0);
-  const [demoData,setDemoData]=useState([]);
+  const [demoData,setDemoData]=useState([]);          // bars for selected chart sym
+  const [demoAutoOn,setDemoAutoOn]=useState(true);    // auto-trade during demo
 
   const stocksRef=useRef(stocks);const portfolioRef=useRef(portfolio);
   const cfgRef=useRef(cfg);const autoOnRef=useRef(autoOn);
   const cooldowns=useRef({});const wsRef=useRef(null);
   const logBuf=useRef([]);const livePrices=useRef({});
-  const demoIdxRef=useRef(0);const demoDataRef=useRef([]);
+  const demoIdxRef=useRef(0);
+  // Per-symbol demo data map: {NVDA:[bars], TSLA:[bars], ...}
+  const demoAllDataRef=useRef({});
+  // Demo auto-trade ref
+  const demoAutoRef=useRef(true);
 
   stocksRef.current=stocks;portfolioRef.current=portfolio;
-  cfgRef.current=cfg;autoOnRef.current=autoOn;demoDataRef.current=demoData;
+  cfgRef.current=cfg;autoOnRef.current=autoOn;demoAutoRef.current=demoAutoOn;
 
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   useEffect(()=>{const id=setInterval(()=>setMktStatus(getMarketStatus()),15000);return()=>clearInterval(id);},[]);
@@ -603,38 +643,126 @@ function App(){
     });
   },[addLog]);
 
-  // Demo
-  const startDemo=useCallback(async(sym,mode)=>{
-    setDemoState('loading');setDemoSym(sym);setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
-    addLog('[DEMO] Loading data for '+sym+'...','info');
-    let bars=[];
-    try{
-      const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
-      const ys=yesterday.toISOString().split('T')[0];
-      const r=await fetch('/api/bars/'+sym+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
-      const d=await r.json();
-      if(d.bars&&d.bars.length>0){bars=d.bars;addLog('[DEMO] '+bars.length+' real bars loaded','trade');}
-      else addLog('[DEMO] No data — synthetic day','warn');
-    }catch(e){addLog('[DEMO] API error — synthetic day','warn');}
-    const seed=SEEDS.find(s=>s.symbol===sym)||SEEDS[0];
-    const data=generateDemoDay(seed,bars);
-    setDemoData(data);setDemoState('running');
-    addLog('[DEMO] '+(mode==='fast'?'Fast-forward':'Tick replay')+' started','trade');
+  // ── Demo Mode — all 20 symbols simultaneously with auto-trading ──────────────
+  const startDemo=useCallback(async(mode)=>{
+    setDemoState('loading');setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
+    addLog('[DEMO] Generating intraday data for all 20 symbols...','info');
+
+    // Try to fetch real bars for each symbol in parallel (yesterday)
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    // Skip weekends
+    while(yesterday.getDay()===0||yesterday.getDay()===6)yesterday.setDate(yesterday.getDate()-1);
+    const ys=yesterday.toISOString().split('T')[0];
+
+    const allData={};
+    // Shared market bias — on a good day most go up, bad day most go down
+    const marketBias=(Math.random()-0.42)*0.0005;
+    addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' day ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
+
+    await Promise.allSettled(SEEDS.map(async seed=>{
+      let realBars=[];
+      try{
+        const r=await fetch('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+        const d=await r.json();
+        if(d.bars&&d.bars.length>5)realBars=d.bars;
+      }catch(e){}
+      allData[seed.symbol]=generateSymbolDay(seed,realBars,marketBias);
+    }));
+
+    demoAllDataRef.current=allData;
+    // Set chart to first symbol with data
+    const firstSym=SEEDS[0].symbol;
+    setDemoData(allData[firstSym]||[]);
+    setDemoSym(firstSym);
+    setDemoState('running');
+    setDataMode('demo'); // unlock auto-engine
+    addLog('[DEMO] Running — auto-trading all symbols','trade');
   },[addLog]);
 
+  const stopDemo=useCallback(()=>{
+    setDemoState('idle');setDemoProgress(0);demoIdxRef.current=0;
+    demoAllDataRef.current={};
+    setDataMode('idle');
+    addLog('[DEMO] Stopped','info');
+  },[addLog]);
+
+  // Tick loop — advances ALL symbols each interval
   useEffect(()=>{
     if(demoState!=='running')return;
-    const interval=demoMode==='fast'?60:350;
+    const interval=demoMode==='fast'?55:380;
+    const maxLen=Math.max(...SEEDS.map(s=>(demoAllDataRef.current[s.symbol]||[]).length),390);
     const id=setInterval(()=>{
-      const data=demoDataRef.current;
-      if(demoIdxRef.current>=data.length){setDemoState('done');addLog('[DEMO] Complete','info');clearInterval(id);return;}
-      const bar=data[demoIdxRef.current];
-      setDemoProgress(Math.round((demoIdxRef.current/data.length)*100));
-      processTick(demoSym,bar.c);
-      demoIdxRef.current++;
+      const idx=demoIdxRef.current;
+      if(idx>=maxLen){
+        setDemoState('done');
+        setDataMode('idle');
+        addLog('[DEMO] Day complete — check Analytics for results','trade');
+        clearInterval(id);return;
+      }
+      // Feed ALL 20 symbols their bar at this minute
+      SEEDS.forEach(seed=>{
+        const bars=demoAllDataRef.current[seed.symbol]||[];
+        if(idx<bars.length){
+          const bar=bars[idx];
+          processTick(seed.symbol,bar.c);
+        }
+      });
+      setDemoProgress(Math.round((idx/maxLen)*100));
+      demoIdxRef.current=idx+1;
     },interval);
     return()=>clearInterval(id);
-  },[demoState,demoMode,demoSym,processTick,addLog]);
+  },[demoState,demoMode,processTick,addLog]);
+
+  // Demo auto-trader — fires independently when demoAutoOn
+  useEffect(()=>{
+    if(demoState!=='running')return;
+    const id=setInterval(()=>{
+      if(!demoAutoRef.current)return;
+      const c=cfgRef.current,port=portfolioRef.current;
+      const openSlots=c.maxPositions-port.positions.length;
+      if(openSlots<=0)return;
+      const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
+      const held=new Set(port.positions.map(p=>p.symbol));
+      const now=Date.now();
+      // In demo, use relaxed thresholds so it actually trades
+      const minStr=Math.min(c.minStrength,40);
+      const minRR=Math.min(c.minRR,1.0);
+      const candidates=stocksRef.current
+        .filter(s=>
+          s.signal==='BUY'&&
+          s.signalStrength>=minStr&&
+          s.riskReward!==null&&s.riskReward>=minRR&&
+          s.stopLoss&&s.takeProfit&&
+          !held.has(s.symbol)&&
+          (!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)
+        )
+        .sort((a,b)=>b.signalStrength-a.signalStrength)
+        .slice(0,openSlots);
+      if(!candidates.length)return;
+      const newPositions=[];let cashLeft=port.cash;
+      for(const best of candidates){
+        const riskAmt=equity*(c.riskPct/100);
+        const stopDist=Math.max(best.price-best.stopLoss,0.01);
+        const shares=f4(riskAmt/stopDist);
+        const tradeVal=f2(shares*best.price);
+        if(tradeVal>cashLeft*0.95||tradeVal/equity>0.18)continue;
+        cashLeft=f2(cashLeft-tradeVal);
+        newPositions.push({
+          id:Math.random().toString(36).slice(2,9),
+          symbol:best.symbol,shares,
+          entryPrice:best.price,currentPrice:best.price,
+          stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,
+          trailMult:c.trailMult,riskReward:best.riskReward,
+          atr:best.atr,strength:best.signalStrength,
+          entryType:best.entryType,enteredAt:now,
+          t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true,isDemo:true
+        });
+        addLog('[DEMO·'+(best.entryType||'AUTO')+'] '+best.symbol+' @ '+usd(best.price)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
+      }
+      if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
+    },900);
+    return()=>clearInterval(id);
+  },[demoState,addLog]);
 
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting...');
@@ -659,7 +787,7 @@ function App(){
   },[dataMode,processTick]);
 
   useEffect(()=>{
-    if(dataMode==='idle'||dataMode==='connecting')return;
+    if(dataMode==='idle'||dataMode==='connecting'||dataMode==='demo')return; // demo has its own auto-engine
     const id=setInterval(()=>{
       if(!autoOnRef.current)return;
       const c=cfgRef.current,port=portfolioRef.current;
@@ -719,8 +847,8 @@ function App(){
   const winRate=closed.length?Math.round(wins/closed.length*100):null;
   const buys=stocks.filter(s=>s.signal==='BUY');
   const isActive=dataMode==='live'||dataMode==='sim';
-  const isDemoMode=demoState==='running'||demoState==='paused';
-  const modeColor=dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='connecting'?'#60a5fa':'#334155';
+  const isDemoMode=demoState==='running'||demoState==='paused'||demoState==='loading';
+  const modeColor=dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='demo'?'#a78bfa':dataMode==='connecting'?'#60a5fa':'#334155';
   const riskAlerts=getRiskAlerts(portfolio,cfg,equity);
   const visSt=sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
   const mktCol=mktStatus.isOpen?'#22c55e':mktStatus.isPre||mktStatus.isAH?'#fbbf24':'#ef4444';
@@ -749,26 +877,50 @@ function App(){
 
   // ── Demo Controls ─────────────────────────────────────────────────────────
   const demoControls=(
-    <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-      <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>DEMO</span>
-      <select value={demoSym} onChange={e=>setDemoSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
-        {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
-      </select>
-      <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
-        <option value="replay">Replay</option>
-        <option value="fast">Fast Fwd</option>
-      </select>
+    <div style={{padding:'5px 8px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+      <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+        {demoState==='running'?'⬡ DEMO LIVE':demoState==='loading'?'⬡ LOADING...':demoState==='done'?'⬡ DONE':'⬡ DEMO'}
+      </span>
+      {/* Speed toggle - only when idle/done */}
+      {(demoState==='idle'||demoState==='done')&&(
+        <>
+          <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+            <option value="fast">Fast Fwd</option>
+            <option value="replay">Real-time</option>
+          </select>
+          {/* Chart symbol selector */}
+          <select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+            {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+          </select>
+        </>
+      )}
+      {/* Auto-trade toggle */}
+      <label style={{display:'flex',alignItems:'center',gap:3,cursor:'pointer',fontSize:7,color:demoAutoOn?'#a78bfa':'#475569'}}>
+        <input type="checkbox" checked={demoAutoOn} onChange={e=>setDemoAutoOn(e.target.checked)} style={{width:10,height:10,accentColor:'#a78bfa'}}/>
+        AUTO-TRADE
+      </label>
+      {/* Start/Pause/Stop */}
       {(demoState==='idle'||demoState==='done')
-        ?<button onClick={()=>startDemo(demoSym,demoMode)} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #7c3aed',color:'#a78bfa',background:'transparent',cursor:'pointer'}}>▶ Start</button>
+        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'3px 10px',fontSize:8,fontWeight:700,border:'1px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer'}}>
+           ▶ Simulate Day
+         </button>
         :<>
-          <button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'⏸':'▶'}</button>
-          <button onClick={()=>{setDemoState('idle');setDemoProgress(0);demoIdxRef.current=0;}} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>■</button>
+          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{demoState==='running'?'⏸ Pause':'▶ Resume'}</button>}
+          <button onClick={stopDemo} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'transparent',cursor:'pointer'}}>■ Stop</button>
+          {/* Chart sym switch while running */}
+          {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
+            {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
+          </select>}
         </>
       }
+      {/* Progress bar */}
       {demoState!=='idle'&&(
-        <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:60}}>
-          <div style={{flex:1,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:demoProgress+'%',background:'#a78bfa',borderRadius:2}}/></div>
-          <span style={{fontSize:7,color:'#7c3aed'}}>{demoProgress}%</span>
+        <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:70}}>
+          <div style={{flex:1,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
+            <div style={{height:'100%',width:demoProgress+'%',background:demoState==='running'?'#a78bfa':'#334155',borderRadius:2,transition:'width 0.4s'}}/>
+          </div>
+          <span style={{fontSize:7,color:'#7c3aed',fontWeight:700}}>{demoProgress}%</span>
+          <span style={{fontSize:6,color:'#334155'}}>{demoState.toUpperCase()}</span>
         </div>
       )}
     </div>
@@ -785,7 +937,7 @@ function App(){
         ))}
       </div>
       <div style={{flexGrow:1,minHeight:0}}>
-        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={demoSym===selectedSym?demoData:[]} isDemoMode={isDemoMode&&demoSym===selectedSym}/>
+        <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]} isDemoMode={isDemoMode}/>
       </div>
       {demoControls}
     </div>
@@ -1012,7 +1164,8 @@ function App(){
         <div style={{display:'flex',alignItems:'center',gap:7}}>
           <div style={{width:7,height:7,borderRadius:'50%',background:modeColor,boxShadow:'0 0 5px '+modeColor}} className={isActive?'pulse':''}/>
           <span style={{fontSize:12,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
-          <span style={{fontSize:7,color:modeColor,border:'1px solid '+modeColor+'44',padding:'1px 5px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='connecting'?'...':'OFF'}</span>
+          <span style={{fontSize:7,color:modeColor,border:'1px solid '+modeColor+'44',padding:'1px 5px',fontWeight:700}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
+          {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'1px 5px',fontWeight:700}} className="pulse">⬡ {demoProgress}%</span>}
           <div style={{display:'flex',alignItems:'center',gap:4}}>
             <div style={{width:5,height:5,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
             <span style={{fontSize:7,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
