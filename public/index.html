@@ -627,10 +627,51 @@ function HistoryPanel({onSelectSym}){
   );
 }
 
+
+
+// -- Helpers --------------------------------------------------------------------
+// Normalize an Alpaca position (from /api/positions or trade_update) into our
+// internal shape so all rendering code stays unchanged.
+function normalizePosition(p) {
+  const entry = p.avg_entry_price || p.filled_avg_price || 0;
+  const rr = p.sl && p.tp && entry
+    ? +((p.tp - entry) / (entry - p.sl)).toFixed(2) : null;
+  return {
+    id:           p.id || p.order_id || p.asset_id,
+    symbol:       p.symbol,
+    shares:       p.qty || p.filled_qty,
+    entryPrice:   entry,
+    currentPrice: p.current_price || entry,
+    stopLoss:     p.sl   || null,
+    takeProfit:   p.tp   || null,
+    hwm:          entry,
+    riskReward:   rr,
+    entryType:    null,
+    isAuto:       p.isAuto || false,
+    enteredAt:    p.entered_at ? new Date(p.entered_at).getTime() : Date.now(),
+    t:            new Date(p.entered_at||Date.now()).toLocaleTimeString('en-GB',{hour12:false})
+  };
+}
+
+// Derive a human-readable exit type from a trade_update sell fill
+function deriveExitType(update) {
+  if (update.order_type === 'stop')   return 'STOP_LOSS';
+  if (update.order_type === 'limit')  return 'TAKE_PROFIT';
+  if (update.order_type === 'market') return 'MANUAL_EXIT';
+  return 'EXIT';
+}
+
 function App(){
+  // -- Core state --------------------------------------------------------------
+  // portfolio.cash / equity / buying_power are always sourced from Alpaca in
+  // live mode, or simulated locally in demo mode.
+  const [portfolio,setPortfolio]=useState({
+    cash:0,equity:0,buying_power:0,
+    positions:[],history:[],
+    loaded:false // true once /api/account returns
+  });
   const [stocks,setStocks]=useState(()=>SEEDS.map(s=>({...s})));
-  const [portfolio,setPortfolio]=useState({cash:INITIAL_EQUITY,positions:[],history:[]});
-  const [dataMode,setDataMode]=useState('idle');
+  const [dataMode,setDataMode]=useState('idle');   // idle|connecting|live|sim|demo
   const [autoOn,setAutoOn]=useState(false);
   const [tab,setTab]=useState('screener');
   const [mobileTab,setMobileTab]=useState('chart');
@@ -640,46 +681,106 @@ function App(){
   const [manualAmt,setManualAmt]=useState(2000);
   const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
   const [mktStatus,setMktStatus]=useState(getMarketStatus());
-  const [cfg,setCfg]=useState({maxPositions:8,riskPct:1.2,minStrength:45,minRR:1.1,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
+  const [cfg,setCfg]=useState({maxPositions:8,minStrength:45,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
   // Demo
-  const [demoState,setDemoState]=useState('idle'); // idle|loading|running|paused|done
-  const [demoSym,setDemoSym]=useState('NVDA');       // for chart display
-  const [demoMode,setDemoMode]=useState('fast');      // replay|fast
+  const [demoState,setDemoState]=useState('idle');
+  const [demoSym,setDemoSym]=useState('NVDA');
+  const [demoMode,setDemoMode]=useState('fast');
   const [demoProgress,setDemoProgress]=useState(0);
-  const [demoData,setDemoData]=useState([]);          // bars for selected chart sym
-  const [demoAutoOn,setDemoAutoOn]=useState(true);    // auto-trade during demo
+  const [demoData,setDemoData]=useState([]);
+  const [demoAutoOn,setDemoAutoOn]=useState(true);
 
+  // -- Refs --------------------------------------------------------------------
   const stocksRef=useRef(stocks);const portfolioRef=useRef(portfolio);
   const cfgRef=useRef(cfg);const autoOnRef=useRef(autoOn);
   const manualAmtRef=useRef(manualAmt);
+  const dataModeRef=useRef(dataMode);  // needed inside processTick without stale closure
   const cooldowns=useRef({});const wsRef=useRef(null);
   const logBuf=useRef([]);const livePrices=useRef({});
   const demoIdxRef=useRef(0);
-  // Per-symbol demo data map: {NVDA:[bars], TSLA:[bars], ...}
   const demoAllDataRef=useRef({});
-  // Demo auto-trade ref
   const demoAutoRef=useRef(true);
+  // Tracks symbols for which we've submitted an order but haven't received fill yet.
+  // Prevents the auto-engine from double-firing on the same symbol.
+  const pendingOrders=useRef(new Set());
 
+  // Keep all refs in sync every render
   stocksRef.current=stocks;portfolioRef.current=portfolio;
   cfgRef.current=cfg;autoOnRef.current=autoOn;
+  dataModeRef.current=dataMode;
   demoAutoRef.current=demoAutoOn;manualAmtRef.current=manualAmt;
 
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   useEffect(()=>{const id=setInterval(()=>setMktStatus(getMarketStatus()),15000);return()=>clearInterval(id);},[]);
+
+  // Log buffer flush --- batches log entries to avoid render storms
   useEffect(()=>{
-    const id=setInterval(()=>{if(!logBuf.current.length)return;const b=[...logBuf.current];logBuf.current=[];setSysLog(p=>[...b,...p].slice(0,150));},600);
+    const id=setInterval(()=>{if(!logBuf.current.length)return;const b=[...logBuf.current];logBuf.current=[];setSysLog(p=>[...b,...p].slice(0,200));},600);
     return()=>clearInterval(id);
   },[]);
 
-  const addLog=useCallback((msg,type='info')=>{logBuf.current.push({msg,type,t:new Date().toLocaleTimeString('en-GB',{hour12:false})});},[]);
+  const addLog=useCallback((msg,type='info')=>{
+    logBuf.current.unshift({msg,type,t:new Date().toLocaleTimeString('en-GB',{hour12:false})});
+  },[]);
 
+  // -- Account load from Alpaca ------------------------------------------------
+  // Called on initial connect and after every trade fill to sync real balance.
+  const refreshAccount=useCallback(async()=>{
+    if(dataModeRef.current==='demo')return;
+    try{
+      const [acctResp,posResp]=await Promise.all([
+        fetch('/api/account'),fetch('/api/positions')
+      ]);
+      const acct=await acctResp.json();
+      const rawPos=await posResp.json();
+      if(acct.error){addLog('[ACCOUNT] '+acct.error,'warn');return;}
+      const positions=Array.isArray(rawPos)?rawPos.map(normalizePosition):[];
+      // Merge live prices into positions we already have in state
+      positions.forEach(p=>{
+        const lp=livePrices.current[p.symbol];
+        if(lp)p.currentPrice=lp;
+      });
+      setPortfolio(prev=>({
+        ...prev,
+        cash:acct.cash,
+        equity:acct.equity,
+        buying_power:acct.buying_power,
+        positions,
+        loaded:true
+      }));
+      addLog('[ACCOUNT] Equity $'+acct.equity.toLocaleString('en-US',{maximumFractionDigits:0})+
+        ' | Cash $'+acct.cash.toLocaleString('en-US',{maximumFractionDigits:0})+
+        ' | '+positions.length+' open position'+(positions.length===1?'':'s'),'trade');
+    }catch(e){
+      addLog('[ACCOUNT] Error: '+e.message,'warn');
+    }
+  },[addLog]);
+
+  // -- processTick -------------------------------------------------------------
+  // In LIVE mode: updates signal state + position display price ONLY.
+  //   --- Exits are handled by Alpaca bracket orders on their servers.
+  // In DEMO mode: full client-side exit evaluation (unchanged from v6).
   const processTick=useCallback((symbol,newPrice)=>{
     livePrices.current[symbol]=newPrice;
     const prev=stocksRef.current.find(s=>s.symbol===symbol);if(!prev)return;
     const sig=computeSignal(prev,newPrice);const now=Date.now();
-    setStocks(p=>p.map(s=>s.symbol!==symbol?s:{...s,...sig,price:newPrice,changePercent:+pctOf(newPrice,s.price).toFixed(3),prevPrice:s.price}).sort((a,b)=>{const o={BUY:0,SELL:1,HOLD:2};return(o[a.signal]??2)-(o[b.signal]??2)||b.signalStrength-a.signalStrength}));
+    setStocks(p=>p.map(s=>s.symbol!==symbol?s:{
+      ...s,...sig,price:newPrice,
+      changePercent:+pctOf(newPrice,s.price).toFixed(3),prevPrice:s.price
+    }).sort((a,b)=>{const o={BUY:0,SELL:1,HOLD:2};return(o[a.signal]??2)-(o[b.signal]??2)||b.signalStrength-a.signalStrength}));
+
     setPortfolio(prev=>{
       if(!prev.positions.some(p=>p.symbol===symbol))return prev;
+
+      // LIVE mode: just update current price for P&L display.
+      // Alpaca bracket orders handle exits server-side without browser involvement.
+      if(dataModeRef.current!=='demo'){
+        return{...prev,positions:prev.positions.map(p=>
+          p.symbol!==symbol?p:{...p,currentPrice:newPrice}
+        )};
+      }
+
+      // DEMO mode: full client-side exit evaluation
       let cash=prev.cash;const active=[],newHist=[];
       prev.positions.forEach(pos=>{
         if(pos.symbol!==symbol){active.push(pos);return;}
@@ -687,230 +788,308 @@ function App(){
         if(exit.close){
           const value=f2(pos.shares*newPrice),profit=f2(value-pos.shares*pos.entryPrice);
           cash+=value;cooldowns.current[pos.symbol]=now;
-          newHist.push({symbol:pos.symbol,type:exit.reason,entry:pos.entryPrice,exit:newPrice,profit,rr:pos.riskReward,held:Math.round((now-pos.enteredAt)/1000)+'s',t:new Date().toLocaleTimeString('en-GB',{hour12:false})});
+          newHist.push({symbol:pos.symbol,type:exit.reason,entry:pos.entryPrice,exit:newPrice,
+            profit,rr:pos.riskReward,held:Math.round((now-pos.enteredAt)/1000)+'s',
+            t:new Date().toLocaleTimeString('en-GB',{hour12:false})});
           addLog('['+exit.reason+'] '+pos.symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
-        } else active.push({...pos,currentPrice:newPrice,hwm:exit.hwm,stopLoss:exit.newSL});
+        }else active.push({...pos,currentPrice:newPrice,hwm:exit.hwm,stopLoss:exit.newSL});
       });
       return{...prev,cash,positions:active,history:newHist.length?[...newHist,...prev.history]:prev.history};
     });
   },[addLog]);
 
-  // -- Demo Mode -- all 20 symbols simultaneously with auto-trading --------------
+  // -- Demo Mode ---------------------------------------------------------------
   const startDemo=useCallback(async(mode)=>{
     setDemoState('loading');setDemoMode(mode);setDemoProgress(0);demoIdxRef.current=0;
-    addLog('[DEMO] Generating intraday data for all 20 symbols...','info');
-
-    // Try to fetch real bars for each symbol in parallel (yesterday)
+    // Reset to simulated portfolio for demo
+    setPortfolio({cash:INITIAL_EQUITY,equity:INITIAL_EQUITY,buying_power:INITIAL_EQUITY,positions:[],history:[],loaded:true});
+    addLog('[DEMO] Loading intraday data for all 20 symbols...','info');
     const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
-    // Skip weekends
     while(yesterday.getDay()===0||yesterday.getDay()===6)yesterday.setDate(yesterday.getDate()-1);
     const ys=yesterday.toISOString().split('T')[0];
-
     const allData={};
-    // Shared market bias -- on a good day most go up, bad day most go down
     const marketBias=(Math.random()-0.42)*0.0005;
-    addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' day ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
-
+    addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
     await Promise.allSettled(SEEDS.map(async seed=>{
       let realBars=[];
-      try{
-        const r=await fetch('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
-        const d=await r.json();
-        if(d.bars&&d.bars.length>5)realBars=d.bars;
-      }catch(e){}
+      try{const r=await fetch('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+        const d=await r.json();if(d.bars&&d.bars.length>5)realBars=d.bars;}catch(e){}
       allData[seed.symbol]=generateSymbolDay(seed,realBars,marketBias);
     }));
-
     demoAllDataRef.current=allData;
-    // Set chart to first symbol with data
-    const firstSym=SEEDS[0].symbol;
-    setDemoData(allData[firstSym]||[]);
-    setDemoSym(firstSym);
+    setDemoData(allData[SEEDS[0].symbol]||[]);
+    setDemoSym(SEEDS[0].symbol);
     setDemoState('running');
-    setDataMode('demo'); // unlock auto-engine
-    addLog('[DEMO] Running -- auto-trading all symbols','trade');
+    setDataMode('demo');
+    addLog('[DEMO] Running --- auto-trading all 20 symbols in simulation','trade');
   },[addLog]);
 
   const stopDemo=useCallback(()=>{
     setDemoState('idle');setDemoProgress(0);demoIdxRef.current=0;
-    demoAllDataRef.current={};
-    setDataMode('idle');
+    demoAllDataRef.current={};setDataMode('idle');
     addLog('[DEMO] Stopped','info');
   },[addLog]);
 
-  // Tick loop -- advances ALL symbols each interval
+  // Demo tick loop --- feeds all 20 symbols simultaneously
   useEffect(()=>{
     if(demoState!=='running')return;
     const interval=demoMode==='fast'?55:380;
     const maxLen=Math.max(...SEEDS.map(s=>(demoAllDataRef.current[s.symbol]||[]).length),390);
     const id=setInterval(()=>{
       const idx=demoIdxRef.current;
-      if(idx>=maxLen){
-        setDemoState('done');
-        setDataMode('idle');
-        addLog('[DEMO] Day complete -- check Analytics for results','trade');
-        clearInterval(id);return;
-      }
-      // Feed ALL 20 symbols their bar at this minute
-      SEEDS.forEach(seed=>{
-        const bars=demoAllDataRef.current[seed.symbol]||[];
-        if(idx<bars.length){
-          const bar=bars[idx];
-          processTick(seed.symbol,bar.c);
-        }
-      });
+      if(idx>=maxLen){setDemoState('done');setDataMode('idle');addLog('[DEMO] Day complete','trade');clearInterval(id);return;}
+      SEEDS.forEach(seed=>{const bars=demoAllDataRef.current[seed.symbol]||[];if(idx<bars.length)processTick(seed.symbol,bars[idx].c);});
       setDemoProgress(Math.round((idx/maxLen)*100));
       demoIdxRef.current=idx+1;
     },interval);
     return()=>clearInterval(id);
   },[demoState,demoMode,processTick,addLog]);
 
-  // Demo auto-trader -- uses shared autoEnterTrades with relaxed threshold
-  useEffect(()=>{
-    if(demoState!=='running')return;
-    const id=setInterval(()=>{
-      if(!demoAutoRef.current)return;
-      // Lower threshold in demo so we actually see trades - still meaningful signals
-      const minStr=Math.max(30, cfgRef.current.minStrength-15);
-      autoEnterTrades(minStr, true);
-    },1200);
-    return()=>clearInterval(id);
-  },[demoState,autoEnterTrades]);
-
-  const connectLive=useCallback(()=>{
-    setDataMode('connecting');addLog('[STREAM] Connecting...');
-    const protocol=window.location.protocol==='https:'?'wss:':'ws:';
-    let timer=setTimeout(()=>{addLog('[STREAM] No backend -- sim mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
-    const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
-    ws.onmessage=evt=>{
-      let msg;try{msg=JSON.parse(evt.data);}catch{return;}
-      if(msg.type==='connected'){clearTimeout(timer);setDataMode('live');addLog('[LIVE] Alpaca '+(msg.alpacaReady?' ':'connecting...'),'trade');}
-      if(msg.type==='alpaca_connected')addLog('[ALPACA] '+msg.symbols?.length+' symbols','trade');
-      if(msg.type==='tick'&&msg.symbol&&msg.price)processTick(msg.symbol,msg.price);
-    };
-    ws.onerror=()=>{clearTimeout(timer);addLog('[ERR] Sim mode','warn');setDataMode('sim');};
-    ws.onclose=()=>clearTimeout(timer);
-  },[addLog,processTick]);
-
-  useEffect(()=>{
-    if(dataMode!=='sim')return;
-    let idx=0;
-    const id=setInterval(()=>{const s=stocksRef.current[idx%stocksRef.current.length];idx++;processTick(s.symbol,Math.max(0.01,f2(s.price*(1+0.0001+s.vol*0.20*(Math.random()*2-1)))));},400);
-    return()=>clearInterval(id);
-  },[dataMode,processTick]);
-
-  // Shared auto-entry function - used by both live and demo engines
+  // -- Auto-entry engine --------------------------------------------------------
+  // DEMO:  client-side portfolio mutation (unchanged from v6)
+  // LIVE:  submits real bracket orders via POST /api/trade
   const autoEnterTrades=useCallback((minStr,isDemo)=>{
     const c=cfgRef.current,port=portfolioRef.current;
     const openSlots=c.maxPositions-port.positions.length;
     if(openSlots<=0)return;
-    const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
+    // Block symbols already held or with a pending order in flight
     const held=new Set(port.positions.map(p=>p.symbol));
+    if(!isDemo)pendingOrders.current.forEach(s=>held.add(s));
     const now=Date.now();
     const candidates=stocksRef.current
-      .filter(s=>
-        s.signal==='BUY' &&
-        s.signalStrength>=minStr &&
-        !held.has(s.symbol) &&
-        s.price>0 && s.atr>0 &&
-        (!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)
-      )
-      .sort((a,b)=>b.signalStrength-a.signalStrength)
-      .slice(0,openSlots);
+      .filter(s=>s.signal==='BUY'&&s.signalStrength>=minStr&&!held.has(s.symbol)&&
+        s.price>0&&s.atr>0&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000))
+      .sort((a,b)=>b.signalStrength-a.signalStrength).slice(0,openSlots);
     if(!candidates.length)return;
-    const newPositions=[];
-    let cashLeft=port.cash;
-    for(const best of candidates){
-      // POSITION SIZING: same $ amount as the position size slider
-      const posAmt=manualAmtRef.current||2000;
-      const tradeVal=f2(Math.min(posAmt, equity*0.20, cashLeft*0.92));
-      if(tradeVal<50)continue; // need the cash
-      const shares=f4(tradeVal/best.price);
-      if(shares<=0)continue;
-      // -- ATR-BASED SL/TP - always realistic, not dependent on signal noise --
-      const atr=best.atr||f2(best.price*(best.vol||0.02));
-      const slMult={'PULLBACK':1.5,'BREAKOUT':1.2,'BOUNCE':2.0,'CROSS':1.4,'SCALP':1.0}[best.entryType]||1.5;
-      const tpMult={'PULLBACK':3.5,'BREAKOUT':5.0,'BOUNCE':3.0,'CROSS':3.5,'SCALP':2.0}[best.entryType]||3.0;
-      const sl=f2(best.price-atr*slMult);
-      const tp=f2(best.price+atr*tpMult);
-      const rr=+((tp-best.price)/(best.price-sl)).toFixed(2);
-      cashLeft=f2(cashLeft-tradeVal);
-      newPositions.push({
-        id:Math.random().toString(36).slice(2,9),
-        symbol:best.symbol,shares,
-        entryPrice:best.price,currentPrice:best.price,
-        stopLoss:sl,takeProfit:tp,hwm:best.price,
-        trailMult:c.trailMult,riskReward:rr,
-        atr,strength:best.signalStrength,
-        entryType:best.entryType,enteredAt:now,
-        t:new Date().toLocaleTimeString('en-GB',{hour12:false}),
-        isAuto:true,isDemo:!!isDemo
-      });
-      addLog('['+(isDemo?'DEMO':'AUTO')+'.'+(best.entryType||'BUY')+'] '+best.symbol+
-        ' x'+shares.toFixed(3)+' @ '+usd(best.price)+' = '+usd(tradeVal)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+
+    if(isDemo){
+      // -- DEMO: full local simulation --------------------------------------
+      const newPositions=[];let cashLeft=port.cash;
+      for(const best of candidates){
+        const posAmt=manualAmtRef.current||2000;
+        const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
+        const tradeVal=f2(Math.min(posAmt,equity*0.20,cashLeft*0.92));
+        if(tradeVal<50)continue;
+        const shares=f4(tradeVal/best.price);if(shares<=0)continue;
+        const atr=best.atr||f2(best.price*(best.vol||0.02));
+        const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:2.0,CROSS:1.4,SCALP:1.0}[best.entryType]||1.5;
+        const tpMult={PULLBACK:3.5,BREAKOUT:5.0,BOUNCE:3.0,CROSS:3.5,SCALP:2.0}[best.entryType]||3.0;
+        const sl=f2(best.price-atr*slMult),tp=f2(best.price+atr*tpMult);
+        const rr=+((tp-best.price)/(best.price-sl)).toFixed(2);
+        cashLeft=f2(cashLeft-tradeVal);
+        newPositions.push({id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,
+          entryPrice:best.price,currentPrice:best.price,stopLoss:sl,takeProfit:tp,hwm:best.price,
+          trailMult:c.trailMult,riskReward:rr,atr,strength:best.signalStrength,entryType:best.entryType,
+          enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true,isDemo:true});
+        addLog('[DEMO.'+(best.entryType||'BUY')+'] '+best.symbol+' x'+shares.toFixed(3)+
+          ' @ '+usd(best.price)+' = '+usd(tradeVal)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+      }
+      if(newPositions.length>0)
+        setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
+
+    } else {
+      // -- LIVE: submit real bracket orders to Alpaca via backend -----------
+      const bp=port.buying_power||port.cash;
+      for(const best of candidates){
+        const posAmt=manualAmtRef.current||2000;
+        const tradeVal=Math.min(posAmt,bp*0.20);
+        const qtyInt=Math.max(1,Math.floor(tradeVal/best.price));
+        const atr=best.atr||f2(best.price*(best.vol||0.02));
+        const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:2.0,CROSS:1.4,SCALP:1.0}[best.entryType]||1.5;
+        const tpMult={PULLBACK:3.5,BREAKOUT:5.0,BOUNCE:3.0,CROSS:3.5,SCALP:2.0}[best.entryType]||3.0;
+        const sl=f2(best.price-atr*slMult),tp=f2(best.price+atr*tpMult);
+        // Mark as pending + set cooldown immediately to block re-entry while in flight
+        pendingOrders.current.add(best.symbol);
+        cooldowns.current[best.symbol]=now;
+        fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({symbol:best.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:best.price,isAuto:true})
+        }).then(r=>r.json()).then(data=>{
+          if(data.error){
+            addLog('[AUTO REJECTED] '+best.symbol+': '+data.error,'warn');
+            pendingOrders.current.delete(best.symbol);
+          }else{
+            addLog('[AUTO.'+(best.entryType||'BUY')+'] '+best.symbol+' x'+qtyInt+
+              ' @ ~'+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+          }
+        }).catch(e=>{
+          addLog('[AUTO ERROR] '+best.symbol+': '+e.message,'warn');
+          pendingOrders.current.delete(best.symbol);
+        });
+      }
     }
-    if(newPositions.length>0)
-      setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
   },[addLog]);
 
-  // Live / sim auto-engine
+  // Live auto-engine (fires on a 1s interval when engine is armed)
   useEffect(()=>{
     if(dataMode==='idle'||dataMode==='connecting'||dataMode==='demo')return;
-    const id=setInterval(()=>{
-      if(!autoOnRef.current)return;
-      autoEnterTrades(cfgRef.current.minStrength, false);
-    },1000);
+    const id=setInterval(()=>{if(!autoOnRef.current)return;autoEnterTrades(cfgRef.current.minStrength,false);},1000);
     return()=>clearInterval(id);
   },[dataMode,autoEnterTrades]);
 
-  // manualTrade reads from refs so it is NEVER stale regardless of render timing
-  const manualTrade=useCallback((s)=>{
+  // Demo auto-engine
+  useEffect(()=>{
+    if(demoState!=='running')return;
+    const id=setInterval(()=>{if(!demoAutoRef.current)return;autoEnterTrades(Math.max(30,cfgRef.current.minStrength-15),true);},1200);
+    return()=>clearInterval(id);
+  },[demoState,autoEnterTrades]);
+
+  // Sim mode (no backend) --- random price walk, no real orders
+  useEffect(()=>{
+    if(dataMode!=='sim')return;
+    let idx=0;
+    const id=setInterval(()=>{const s=stocksRef.current[idx%stocksRef.current.length];idx++;
+      processTick(s.symbol,Math.max(0.01,f2(s.price*(1+0.0001+s.vol*0.20*(Math.random()*2-1)))));},400);
+    return()=>clearInterval(id);
+  },[dataMode,processTick]);
+
+  // -- Manual trade --- submits real bracket order to Alpaca ---------------------
+  const manualTrade=useCallback(async(s)=>{
     const lotSize=manualAmtRef.current||2000;
-    const cash=portfolioRef.current.cash;
-    if(cash<100){addLog('[SKIP] Not enough cash (have '+usd(cash)+')','warn');return;}
-    const posSize=Math.min(lotSize, cash*0.95);
-    const shares=f4(posSize/s.price);
-    if(shares<=0){addLog('[SKIP] Shares=0','warn');return;}
-    const actualCost=f2(shares*s.price);
+    const port=portfolioRef.current;
+    const bp=port.buying_power||port.cash;
+    if(bp<100){addLog('[SKIP] Insufficient buying power ('+usd(bp)+')','warn');return;}
+    const posSize=Math.min(lotSize,bp*0.95);
+    const qtyInt=Math.max(1,Math.floor(posSize/s.price));
+    const actualCost=f2(qtyInt*s.price);
     const atr=s.atr||f2(s.price*(s.vol||0.02));
-    const slMult={'PULLBACK':1.5,'BREAKOUT':1.2,'BOUNCE':1.8,'CROSS':1.4,'SCALP':1.0}[s.entryType]||1.5;
-    const tpMult={'PULLBACK':3.0,'BREAKOUT':4.0,'BOUNCE':2.5,'CROSS':3.0,'SCALP':2.0}[s.entryType]||3.0;
-    const sl=f2(s.price-atr*slMult);
-    const tp=f2(s.price+atr*tpMult);
-    const rr=+((tp-s.price)/(s.price-sl)).toFixed(2);
-    setPortfolio(p=>({
-      ...p,
-      cash:f2(p.cash-actualCost),
-      positions:[...p.positions,{
-        id:Math.random().toString(36).slice(2,9),
-        symbol:s.symbol,shares,
-        entryPrice:s.price,currentPrice:s.price,
-        stopLoss:sl,takeProfit:tp,hwm:s.price,
-        trailMult:cfgRef.current.trailMult,
-        riskReward:rr,atr,
-        strength:s.signalStrength,entryType:s.entryType,
-        enteredAt:Date.now(),
-        t:new Date().toLocaleTimeString('en-GB',{hour12:false}),
-        isAuto:false
-      }]
-    }));
-    addLog('[BUY] '+s.symbol+' x'+shares.toFixed(3)+' @ '+usd(s.price)+
-      ' = '+usd(actualCost)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
-    setSelectedSym(s.symbol);
+    const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:1.8,CROSS:1.4,SCALP:1.0}[s.entryType]||1.5;
+    const tpMult={PULLBACK:3.0,BREAKOUT:4.0,BOUNCE:2.5,CROSS:3.0,SCALP:2.0}[s.entryType]||3.0;
+    const sl=f2(s.price-atr*slMult),tp=f2(s.price+atr*tpMult);
+    addLog('[SUBMITTING] '+s.symbol+' x'+qtyInt+' @ ~'+usd(s.price)+' = '+usd(actualCost)+
+      ' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+    try{
+      const resp=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({symbol:s.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:s.price,isAuto:false})});
+      const data=await resp.json();
+      if(!resp.ok||data.error){
+        addLog('[REJECTED] '+s.symbol+': '+(data.error||'Alpaca refused order'),'warn');
+        return;
+      }
+      addLog('[ORDER SENT] '+s.symbol+' #'+(data.order_id||'').slice(0,8)+' --- waiting for fill...','trade');
+      pendingOrders.current.add(s.symbol);
+      setSelectedSym(s.symbol);
+    }catch(e){
+      addLog('[ERROR] Network: '+e.message,'warn');
+    }
   },[addLog]);
 
-  const closeManual=id=>{
-    setPortfolio(prev=>{
-      const pos=prev.positions.find(p=>p.id===id);if(!pos)return prev;
-      const value=f2(pos.shares*pos.currentPrice),profit=f2(value-pos.shares*pos.entryPrice);
-      cooldowns.current[pos.symbol]=Date.now();
-      addLog('[EXIT] '+pos.symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
-      return{...prev,cash:f2(prev.cash+value),positions:prev.positions.filter(p=>p.id!==id),history:[{symbol:pos.symbol,type:'MANUAL_EXIT',entry:pos.entryPrice,exit:pos.currentPrice,profit,rr:pos.riskReward,held:Math.round((Date.now()-pos.enteredAt)/1000)+'s',t:new Date().toLocaleTimeString('en-GB',{hour12:false})},...prev.history]};
-    });
-  };
+  // -- Close position --- submits market sell via Alpaca -------------------------
+  const closePosition=useCallback(async(symbol)=>{
+    addLog('[CLOSING] '+symbol+' --- submitting market sell...','trade');
+    try{
+      const resp=await fetch('/api/position/'+encodeURIComponent(symbol),{method:'DELETE'});
+      const data=await resp.json();
+      if(!resp.ok||data.error){addLog('[CLOSE ERROR] '+symbol+': '+(data.error||'Failed'),'warn');return;}
+      addLog('[CLOSE ORDER SENT] '+symbol+' --- waiting for fill...','trade');
+    }catch(e){addLog('[CLOSE ERROR] Network: '+e.message,'warn');}
+  },[addLog]);
 
-  const posVal=portfolio.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-  const equity=portfolio.cash+posVal;
+  // -- WebSocket: live price stream + trade update stream -----------------------
+  const connectLive=useCallback(()=>{
+    setDataMode('connecting');addLog('[STREAM] Connecting to server...');
+    const protocol=window.location.protocol==='https:'?'wss:':'ws:';
+    let timer=setTimeout(()=>{addLog('[STREAM] Backend not reachable --- simulation mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
+    const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
+
+    ws.onmessage=evt=>{
+      let msg;try{msg=JSON.parse(evt.data);}catch{return;}
+
+      // -- Initial connection -----------------------------------------------
+      if(msg.type==='connected'){
+        clearTimeout(timer);setDataMode('live');
+        addLog('[LIVE] Connected'+(msg.paper?' (PAPER TRADING)':'')+
+          (msg.alpacaReady?' | Market data: ready':' | Market data: connecting...'),'trade');
+        // Load real account state from Alpaca immediately
+        refreshAccount();
+      }
+      if(msg.type==='alpaca_connected')addLog('[DATA] '+msg.symbols?.length+' symbols subscribed','trade');
+      if(msg.type==='trade_stream_ready')addLog('[TRADE STREAM] Order updates: active','trade');
+      if(msg.type==='trade_stream_error')addLog('[TRADE STREAM] Warning: '+(msg.reason||'unknown'),'warn');
+
+      // -- Real-time price tick ---------------------------------------------
+      if(msg.type==='tick'&&msg.symbol&&msg.price)processTick(msg.symbol,msg.price);
+
+      // -- Trade update from Alpaca -----------------------------------------
+      // This fires when: bracket order fills (entry), stop-loss triggers,
+      // take-profit triggers, manual close fills, or order gets rejected.
+      if(msg.type==='trade_update'){
+        const{event,symbol,side,filled_avg_price,filled_qty,status,reject_reason,
+              sl,tp,isAuto,entry_price,entered_at,order_type}=msg;
+
+        // Entry fill --- a new position has opened on Alpaca
+        if(event==='fill'&&side==='buy'){
+          pendingOrders.current.delete(symbol);
+          setPortfolio(prev=>{
+            // Guard against duplicate fill events
+            if(prev.positions.some(p=>p.symbol===symbol))return prev;
+            const newPos=normalizePosition({
+              id:msg.order_id,symbol,qty:filled_qty,
+              avg_entry_price:filled_avg_price,current_price:livePrices.current[symbol]||filled_avg_price,
+              sl,tp,isAuto,entered_at
+            });
+            addLog('[FILL] '+symbol+' x'+filled_qty+' entered @ '+usd(filled_avg_price),'trade');
+            return{...prev,positions:[...prev.positions,newPos]};
+          });
+          // Refresh balance after a small delay (Alpaca updates equity ~1s after fill)
+          setTimeout(refreshAccount,1500);
+        }
+
+        // Exit fill --- position closed by SL, TP, or manual sell
+        if(event==='fill'&&side==='sell'){
+          pendingOrders.current.delete(symbol);
+          setPortfolio(prev=>{
+            const pos=prev.positions.find(p=>p.symbol===symbol);
+            const entryPx=entry_price||pos?.entryPrice||filled_avg_price;
+            const qty=filled_qty||(pos?.shares||0);
+            const profit=f2((filled_avg_price-entryPx)*qty);
+            const heldMs=pos?(Date.now()-pos.enteredAt):0;
+            const exitType=deriveExitType(msg);
+            const histEntry={
+              symbol,type:exitType,entry:entryPx,exit:filled_avg_price,profit,
+              rr:pos?.riskReward||null,
+              held:Math.round(heldMs/1000)+'s',
+              t:new Date().toLocaleTimeString('en-GB',{hour12:false})
+            };
+            addLog('['+exitType+'] '+symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
+            return{
+              ...prev,
+              positions:prev.positions.filter(p=>p.symbol!==symbol),
+              history:[histEntry,...prev.history]
+            };
+          });
+          setTimeout(refreshAccount,1500);
+        }
+
+        // Partial fill --- update shares count
+        if(event==='partial_fill'&&side==='buy'){
+          addLog('[PARTIAL FILL] '+symbol+' '+filled_qty+'/'+msg.qty+' shares','trade');
+        }
+
+        // Order rejected or canceled by Alpaca
+        if(event==='canceled'||status==='rejected'){
+          pendingOrders.current.delete(symbol);
+          const reason=reject_reason||status||'unknown';
+          addLog('[ORDER REJECTED] '+symbol+': '+reason,'warn');
+        }
+        if(event==='rejected'){
+          pendingOrders.current.delete(symbol);
+          addLog('[REJECTED] '+symbol+': '+(reject_reason||'Alpaca refused'),'warn');
+        }
+        // Order accepted/acknowledged
+        if(event==='new'){
+          addLog('[ORDER ACCEPTED] '+symbol+' bracket order queued','trade');
+        }
+      }
+    };
+    ws.onerror=()=>{clearTimeout(timer);addLog('[ERR] Connection failed --- simulation mode','warn');setDataMode('sim');};
+    ws.onclose=()=>clearTimeout(timer);
+  },[addLog,processTick,refreshAccount]);
+
+  // -- Derived values ----------------------------------------------------------
+  const isDemoMode=demoState==='running'||demoState==='paused'||demoState==='loading';
+  // In live mode: equity from Alpaca.  In demo/sim: compute locally.
+  const posVal=portfolio.positions.reduce((a,p)=>a+p.shares*(p.currentPrice||p.entryPrice),0);
+  const equity=portfolio.equity||(portfolio.cash+posVal)||0;
   const totalRet=pctOf(equity,INITIAL_EQUITY);
   const openPnl=portfolio.positions.reduce((a,p)=>a+(p.currentPrice-p.entryPrice)*p.shares,0);
   const closed=portfolio.history;
@@ -919,19 +1098,18 @@ function App(){
   const winRate=closed.length?Math.round(wins/closed.length*100):null;
   const buys=stocks.filter(s=>s.signal==='BUY');
   const isActive=dataMode==='live'||dataMode==='sim';
-  const isDemoMode=demoState==='running'||demoState==='paused'||demoState==='loading';
   const modeColor=dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='demo'?'#a78bfa':dataMode==='connecting'?'#60a5fa':'#334155';
   const riskAlerts=getRiskAlerts(portfolio,cfg,equity);
   const visSt=sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
   const mktCol=mktStatus.isOpen?'#22c55e':mktStatus.isPre||mktStatus.isAH?'#fbbf24':'#ef4444';
+  const buyingPower=portfolio.buying_power||portfolio.cash;
 
   const th={padding:'8px 10px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',fontWeight:700,borderBottom:'1px solid #0d0d14',whiteSpace:'nowrap'};
   const td={padding:'10px 10px',borderBottom:'1px solid #0a0a12',color:'#e2e8f0',fontSize:13};
 
-  // -- Analytics ------------------------------------------------------------
+  // -- Analytics ---------------------------------------------------------------
   const trades=closed;
-  const wns=trades.filter(t=>t.profit>0);
-  const lss=trades.filter(t=>t.profit<=0);
+  const wns=trades.filter(t=>t.profit>0);const lss=trades.filter(t=>t.profit<=0);
   const avgWin=wns.length?wns.reduce((a,t)=>a+t.profit,0)/wns.length:0;
   const avgLoss=lss.length?lss.reduce((a,t)=>a+t.profit,0)/lss.length:0;
   const bestTrade=trades.length?Math.max(...trades.map(t=>t.profit)):0;
@@ -939,7 +1117,6 @@ function App(){
   const profitFactor=Math.abs(avgLoss)>0?Math.abs(avgWin/avgLoss):0;
   const drawdown=pctOf(equity,INITIAL_EQUITY);
   const byReason={};trades.forEach(t=>{byReason[t.type]=(byReason[t.type]||0)+1;});
-
   const stat=(l,v,c='#e2e8f0')=>(
     <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #0a0a10'}}>
       <span style={{fontSize:11,color:'#475569'}}>{l}</span>
@@ -947,58 +1124,48 @@ function App(){
     </div>
   );
 
-  // -- Demo Controls ---------------------------------------------------------
+  // -- Demo controls (inline above chart) -------------------------------------
   const demoControls=(
     <div style={{padding:'8px 12px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
       <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>
-        {demoState==='running'?'* DEMO LIVE':demoState==='loading'?'* LOADING...':demoState==='done'?'* DONE':'* DEMO'}
+        {demoState==='running'?'DEMO LIVE':demoState==='loading'?'LOADING...':demoState==='done'?'DONE':'DEMO'}
       </span>
-      {/* Speed toggle - only when idle/done */}
       {(demoState==='idle'||demoState==='done')&&(
         <>
           <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
             <option value="fast">Fast Fwd</option>
             <option value="replay">Real-time</option>
           </select>
-          {/* Chart symbol selector */}
           <select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
           </select>
         </>
       )}
-      {/* Auto-trade toggle */}
       <label style={{display:'flex',alignItems:'center',gap:3,cursor:'pointer',fontSize:7,color:demoAutoOn?'#a78bfa':'#475569'}}>
-        <input type="checkbox" checked={demoAutoOn} onChange={e=>setDemoAutoOn(e.target.checked)} style={{width:10,height:10,accentColor:'#a78bfa'}}/>
-        AUTO-TRADE
+        <input type="checkbox" checked={demoAutoOn} onChange={e=>setDemoAutoOn(e.target.checked)} style={{width:10,height:10,accentColor:'#a78bfa'}}/>AUTO-TRADE
       </label>
-      {/* Start/Pause/Stop */}
       {(demoState==='idle'||demoState==='done')
-        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'8px 20px',fontSize:13,fontWeight:700,border:'2px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer',borderRadius:4}}>
-             Simulate Day
-         </button>
+        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'8px 20px',fontSize:13,fontWeight:700,border:'2px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer',borderRadius:4}}>Simulate Day</button>
         :<>
           {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer',borderRadius:4}}>{demoState==='running'?'Pause':'Resume'}</button>}
           <button onClick={stopDemo} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Stop</button>
-          {/* Chart sym switch while running */}
           {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
           </select>}
         </>
       }
-      {/* Progress bar */}
       {demoState!=='idle'&&(
         <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:70}}>
           <div style={{flex:1,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
             <div style={{height:'100%',width:demoProgress+'%',background:demoState==='running'?'#a78bfa':'#334155',borderRadius:2,transition:'width 0.4s'}}/>
           </div>
           <span style={{fontSize:7,color:'#7c3aed',fontWeight:700}}>{demoProgress}%</span>
-          <span style={{fontSize:6,color:'#334155'}}>{demoState.toUpperCase()}</span>
         </div>
       )}
     </div>
   );
 
-  // -- Panels ----------------------------------------------------------------
+  // -- Panels ------------------------------------------------------------------
   const chartPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       <div style={{display:'flex',gap:2,padding:'4px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
@@ -1017,12 +1184,11 @@ function App(){
 
   const screenerPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#060608'}}>
-      {/* Header explaining purpose */}
       <div style={{padding:'10px 16px',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
           <div>
             <div style={{fontSize:14,fontWeight:700,color:'#f1f5f9',letterSpacing:'0.05em'}}>Signal Scanner</div>
-            <div style={{fontSize:11,color:'#475569',marginTop:2}}>Watches all 20 stocks live. When a BUY appears, hit Execute to open a trade.</div>
+            <div style={{fontSize:11,color:'#475569',marginTop:2}}>Watches all 20 stocks live. BUY signals route real bracket orders to Alpaca Paper.</div>
           </div>
           <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
             {['ALL','BUY','SELL','HOLD'].map(f=>(
@@ -1042,28 +1208,24 @@ function App(){
           </div>
         </div>
       </div>
-      {/* Table */}
       <div style={{overflowY:'auto',flex:1}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead style={{position:'sticky',top:0,background:'#08080f',zIndex:10}}>
-            <tr>
-              {['Symbol','Price','Change','RSI','Trend','Signal','Strength','Stop Loss / Take Profit','Action'].map(h=>(
-                <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',fontWeight:700,borderBottom:'2px solid #0d0d18',whiteSpace:'nowrap'}}>{h}</th>
-              ))}
-            </tr>
+            <tr>{['Symbol','Price','Change','RSI','Trend','Signal','Strength','Stop Loss / Take Profit','Action'].map(h=>(
+              <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',fontWeight:700,borderBottom:'2px solid #0d0d18',whiteSpace:'nowrap'}}>{h}</th>
+            ))}</tr>
           </thead>
           <tbody>
             {visSt.map(s=>{
-              const held=portfolio.positions.some(p=>p.symbol===s.symbol);
+              const held=portfolio.positions.some(p=>p.symbol===s.symbol)||pendingOrders.current.has(s.symbol);
               const seed=SEEDS.find(sd=>sd.symbol===s.symbol);
-              const chg=s.changePercent??0;
-              const rsi=s.rsi??50;
-              const isBuy=s.signal==='BUY', isSell=s.signal==='SELL';
+              const chg=s.changePercent??0;const rsi=s.rsi??50;
+              const isBuy=s.signal==='BUY',isSell=s.signal==='SELL';
+              const sharePreview=Math.max(1,Math.floor(Math.min(manualAmt,buyingPower*0.95)/s.price));
               return(
                 <tr key={s.symbol}
                   style={{cursor:'pointer',borderBottom:'1px solid #0a0a14',background:held?'#0d0d1e':isBuy?'#060e06':'transparent',transition:'background 0.2s'}}
                   onClick={()=>{setSelectedSym(s.symbol);if(isMobile)setMobileTab('chart');else setTab('chart');}}>
-                  {/* Symbol */}
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
                       <div style={{width:4,height:32,borderRadius:2,background:TIER_COLOR[seed?.tier]||'#22d3ee',flexShrink:0}}/>
@@ -1073,13 +1235,8 @@ function App(){
                       </div>
                     </div>
                   </td>
-                  {/* Price */}
                   <td style={{padding:'12px 12px',fontWeight:700,fontSize:15,color:'#f1f5f9',whiteSpace:'nowrap'}}>{usd(s.price)}</td>
-                  {/* Change */}
-                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:13,color:chg>=0?'#22c55e':'#ef4444',whiteSpace:'nowrap'}}>
-                    {chg>=0?'+':''}{chg.toFixed(2)}%
-                  </td>
-                  {/* RSI */}
+                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:13,color:chg>=0?'#22c55e':'#ef4444',whiteSpace:'nowrap'}}>{chg>=0?'+':''}{chg.toFixed(2)}%</td>
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:7}}>
                       <div style={{width:44,height:7,background:'#111',borderRadius:3,overflow:'hidden',flexShrink:0}}>
@@ -1088,7 +1245,6 @@ function App(){
                       <span style={{fontSize:13,color:rsi<35?'#22c55e':rsi>68?'#ef4444':'#94a3b8',fontWeight:600}}>{rsi.toFixed(0)}</span>
                     </div>
                   </td>
-                  {/* Trend */}
                   <td style={{padding:'12px 12px'}}>
                     <span style={{fontSize:12,fontWeight:700,padding:'4px 10px',borderRadius:3,
                       background:s.uptrend?'#0a1f0a':s.downtrend?'#1c0707':'#111',
@@ -1097,7 +1253,6 @@ function App(){
                       {s.uptrend?'UP':s.downtrend?'DOWN':'FLAT'}
                     </span>
                   </td>
-                  {/* Signal */}
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',flexDirection:'column',gap:3}}>
                       <span style={{fontSize:13,fontWeight:800,padding:'4px 10px',borderRadius:3,display:'inline-block',
@@ -1109,18 +1264,14 @@ function App(){
                       {s.entryType&&<span style={{fontSize:10,color:'#64748b',paddingLeft:2}}>{s.entryType}</span>}
                     </div>
                   </td>
-                  {/* Strength bar */}
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:7}}>
                       <div style={{width:56,height:7,background:'#0f0f14',borderRadius:3,overflow:'hidden',flexShrink:0}}>
-                        <div style={{height:'100%',width:(s.signalStrength??0)+'%',
-                          background:isBuy?'#22c55e':isSell?'#ef4444':'#334155',
-                          borderRadius:3,transition:'width 0.4s'}}/>
+                        <div style={{height:'100%',width:(s.signalStrength??0)+'%',background:isBuy?'#22c55e':isSell?'#ef4444':'#334155',borderRadius:3,transition:'width 0.4s'}}/>
                       </div>
                       <span style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{(s.signalStrength??0).toFixed(0)}%</span>
                     </div>
                   </td>
-                  {/* SL/TP */}
                   <td style={{padding:'12px 12px'}}>
                     {s.stopLoss&&s.takeProfit?(
                       <div style={{display:'flex',flexDirection:'column',gap:3,fontSize:12}}>
@@ -1129,34 +1280,28 @@ function App(){
                       </div>
                     ):<span style={{color:'#1e293b',fontSize:12}}>--</span>}
                   </td>
-                  {/* Action */}
-                  <td style={{padding:'12px 12px'}}>
+                  <td style={{padding:'12px 12px'}} onClick={e=>e.stopPropagation()}>
                     {isBuy&&!held&&(
                       <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-start'}}>
-                        <button onClick={e=>{e.stopPropagation();manualTrade(s);}}
+                        <button onClick={()=>manualTrade(s)}
                           style={{padding:'10px 22px',fontSize:14,fontWeight:800,
                             border:'2px solid #16a34a',color:'#22c55e',
                             background:'#0a1f0a',borderRadius:5,cursor:'pointer',
-                            whiteSpace:'nowrap',letterSpacing:'0.03em',
-                            boxShadow:'0 0 10px #22c55e22'}}>
+                            whiteSpace:'nowrap',letterSpacing:'0.03em',boxShadow:'0 0 10px #22c55e22'}}>
                           + Buy
                         </button>
-                        {/* Live preview: shows exactly how many shares + cost at current lot size */}
                         <span style={{fontSize:10,color:'#334155',fontFamily:'monospace'}}>
-                          {f4(Math.min(manualAmt,portfolio.cash*0.95)/s.price).toFixed(3)} shares = {usd(Math.min(manualAmt,portfolio.cash*0.95))}
+                          {sharePreview} shares = {usd(f2(sharePreview*s.price))}
                         </span>
                       </div>
                     )}
-                    {held&&(
-                      <span style={{fontSize:12,fontWeight:700,color:'#a78bfa',
-                        padding:'6px 12px',border:'1px solid #a78bfa44',
-                        background:'#0d0018',borderRadius:4,display:'inline-block'}}>
-                        HELD
-                      </span>
+                    {pendingOrders.current.has(s.symbol)&&(
+                      <span style={{fontSize:11,fontWeight:700,color:'#fbbf24',padding:'6px 12px',border:'1px solid #fbbf2444',background:'#1c1000',borderRadius:4,display:'inline-block'}} className="pulse">PENDING</span>
                     )}
-                    {!isBuy&&!held&&(
-                      <span style={{fontSize:11,color:'#1e293b'}}>--</span>
+                    {held&&!pendingOrders.current.has(s.symbol)&&(
+                      <span style={{fontSize:12,fontWeight:700,color:'#a78bfa',padding:'6px 12px',border:'1px solid #a78bfa44',background:'#0d0018',borderRadius:4,display:'inline-block'}}>HELD</span>
                     )}
+                    {!isBuy&&!held&&<span style={{fontSize:11,color:'#1e293b'}}>--</span>}
                   </td>
                 </tr>
               );
@@ -1172,7 +1317,7 @@ function App(){
       {portfolio.positions.length===0?(
         <div style={{height:130,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'#1e293b',gap:5}}>
           <div style={{fontSize:24}}>*</div>
-          <div style={{fontSize:8,color:'#334155',textTransform:'uppercase'}}>{autoOn?'Scanning...':'Arm engine or buy manually'}</div>
+          <div style={{fontSize:8,color:'#334155',textTransform:'uppercase'}}>{autoOn?'Scanning for entries...':'Arm engine or buy manually'}</div>
         </div>
       ):(
         <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -1183,14 +1328,14 @@ function App(){
               const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
               return(
                 <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>*</span>}{pos.symbol}{pos.entryType&&<span style={{fontSize:6,color:'#475569',marginLeft:3}}>{pos.entryType}</span>}</td>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>*</span>}{pos.symbol}</td>
                   <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
                   <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</td>
-                  <td style={{...td,color:'#ef4444',fontSize:9}}>{usd(pos.stopLoss)}</td>
-                  <td style={{...td,color:'#22c55e',fontSize:9}}>{usd(pos.takeProfit)}</td>
+                  <td style={{...td,color:'#ef4444',fontSize:9}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
+                  <td style={{...td,color:'#22c55e',fontSize:9}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1214,7 +1359,7 @@ function App(){
         {stat('Avg Loss',pnlFmt(avgLoss),'#ef4444')}
         {stat('Best Trade',pnlFmt(bestTrade),'#22c55e')}
         {stat('Worst Trade',pnlFmt(worstTrade),'#ef4444')}
-        {stat('Drawdown',(drawdown>=0?'+':'')+drawdown.toFixed(2)+'%',drawdown>=0?'#22c55e':drawdown>-5?'#fbbf24':'#ef4444')}
+        {stat('Return',((drawdown>=0?'+':'')+drawdown.toFixed(2)+'%'),drawdown>=0?'#22c55e':drawdown>-5?'#fbbf24':'#ef4444')}
         {trades.length>0&&(
           <>
             <div style={{fontSize:8,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:8,marginBottom:2}}>Exit Breakdown</div>
@@ -1258,26 +1403,23 @@ function App(){
     </div>
   );
 
-  // ---- Right panel: engine controls, positions, log -------------------------
+  // -- Right panel: engine controls + live positions + log ---------------------
   const rightPanel=(
-    <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto',gap:0}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
 
-      {/* AUTO-EXECUTE   the main CTA */}
+      {/* AUTO-EXECUTE */}
       <div style={{padding:'14px 14px',borderBottom:'1px solid #0f0f18',background:autoOn?'#07110a':'#07070c',flexShrink:0}}>
         <div style={{fontSize:11,color:autoOn?'#4ade80':'#64748b',marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}}>
-          {autoOn?'Engine is running   trades execute automatically':'Engine is off   trades need manual approval'}
+          {autoOn?'Engine running --- orders sent to Alpaca Paper':'Engine off --- manual approval only'}
         </div>
         <button
           onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Auto-Execute ON':'[ENGINE] Auto-Execute OFF',n?'trade':'info');return n;})}
-          style={{
-            width:'100%',padding:'14px 0',fontSize:16,fontWeight:800,
+          style={{width:'100%',padding:'14px 0',fontSize:16,fontWeight:800,
             border:'2px solid '+(autoOn?'#22c55e':'#334155'),
             color:autoOn?'#fff':'#94a3b8',
             background:autoOn?'linear-gradient(135deg,#14532d,#166534)':'#0d0d14',
             borderRadius:6,cursor:'pointer',letterSpacing:'0.04em',
-            boxShadow:autoOn?'0 0 20px #22c55e44':'none',
-            transition:'all 0.2s'
-          }}>
+            boxShadow:autoOn?'0 0 20px #22c55e44':'none',transition:'all 0.2s'}}>
           {autoOn?'AUTO-EXECUTE: ON  --  Click to Pause':'AUTO-EXECUTE: OFF  --  Click to Activate'}
         </button>
         {autoOn&&(
@@ -1296,16 +1438,22 @@ function App(){
             </div>
           </div>
         )}
+        {/* Pending orders indicator */}
+        {pendingOrders.current.size>0&&(
+          <div style={{marginTop:6,fontSize:10,color:'#fbbf24',fontStyle:'italic'}} className="pulse">
+            {pendingOrders.current.size} order{pendingOrders.current.size>1?'s':''} pending fill...
+          </div>
+        )}
       </div>
 
-      {/* Open Positions */}
+      {/* Live Positions (right panel mini-view) */}
       <div style={{flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
         <div style={{padding:'8px 14px',fontSize:11,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em',background:'#08080f',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <span>Open Positions</span>
           <span style={{color:openPnl>=0?'#22c55e':'#ef4444',fontWeight:700}}>{pnlFmt(openPnl)}</span>
         </div>
         {portfolio.positions.length===0?(
-          <div style={{padding:'16px',textAlign:'center',color:'#1e293b',fontSize:12}}>{autoOn?'Scanning for entries...':'Activate auto-execute to start'}</div>
+          <div style={{padding:'16px',textAlign:'center',color:'#1e293b',fontSize:12}}>{autoOn?'Scanning for entries...':'Activate engine or buy manually'}</div>
         ):(
           <div style={{maxHeight:200,overflowY:'auto'}}>
             {portfolio.positions.map(pos=>{
@@ -1314,9 +1462,9 @@ function App(){
               const seed=SEEDS.find(s=>s.symbol===pos.symbol);
               return(
                 <div key={pos.id} style={{padding:'10px 14px',borderBottom:'1px solid #0a0a12',cursor:'pointer',background:pl>=0?'#060e06':'#0e0606'}}
-                  onClick={()=>{setSelectedSym(pos.symbol);}}>
+                  onClick={()=>setSelectedSym(pos.symbol)}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                    <span style={{fontWeight:800,fontSize:14,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{pos.symbol}</span>
+                    <span style={{fontWeight:800,fontSize:14,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:3}}>*</span>}{pos.symbol}</span>
                     <span style={{fontWeight:700,fontSize:14,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</span>
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569',marginBottom:6}}>
@@ -1325,9 +1473,9 @@ function App(){
                     <span style={{color:'#334155'}}>{heldS}s</span>
                   </div>
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                    <span style={{fontSize:10,color:'#ef4444'}}>SL {usd(pos.stopLoss)}</span>
-                    <span style={{fontSize:10,color:'#22c55e'}}>TP {usd(pos.takeProfit)}</span>
-                    <button onClick={e=>{e.stopPropagation();closeManual(pos.id);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
+                    <span style={{fontSize:10,color:'#ef4444'}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
+                    <span style={{fontSize:10,color:'#22c55e'}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
+                    <button onClick={e=>{e.stopPropagation();closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
                   </div>
                 </div>
               );
@@ -1336,11 +1484,9 @@ function App(){
         )}
       </div>
 
-      {/* Trade Size + Engine Settings */}
+      {/* Trade Settings */}
       <div style={{padding:'12px 14px',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
         <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:10}}>Trade Settings</div>
-
-        {/* Lot size - the most important control */}
         <div style={{marginBottom:12,background:'#0a0a14',padding:'10px 12px',borderRadius:5,border:'1px solid #1e293b'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
             <span style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Position Size ($ per trade)</span>
@@ -1351,17 +1497,16 @@ function App(){
             style={{width:'100%',height:6,accentColor:'#fbbf24',marginBottom:4}}/>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#334155'}}>
             <span>$500</span>
-            <span style={{color:'#64748b'}}>Each auto + manual trade uses this amount</span>
+            <span style={{color:'#64748b'}}>auto + manual</span>
             <span>$20k</span>
           </div>
         </div>
-
         {[
-          {k:'maxPositions',l:'Max simultaneous trades',min:1,max:12,step:1,sfx:''},
+          {k:'maxPositions',l:'Max simultaneous positions',min:1,max:12,step:1,sfx:''},
           {k:'minStrength',l:'Min signal strength to enter',min:25,max:90,step:5,sfx:'%'},
-          {k:'cooldownSec',l:'Wait between trades (same stock)',min:5,max:300,step:5,sfx:'s'},
-          {k:'maxHoldSec',l:'Force-close trade after',min:30,max:1800,step:30,sfx:'s'},
-          {k:'trailMult',l:'Trailing stop (x ATR)',min:0.3,max:3,step:0.1,sfx:'x'},
+          {k:'cooldownSec',l:'Cooldown per symbol',min:5,max:300,step:5,sfx:'s'},
+          {k:'maxHoldSec',l:'Force-close after (demo only)',min:30,max:1800,step:30,sfx:'s'},
+          {k:'trailMult',l:'Trail stop (demo only, x ATR)',min:0.3,max:3,step:0.1,sfx:'x'},
         ].map(({k,l,min,max,step,sfx})=>(
           <div key={k} style={{marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
@@ -1391,23 +1536,36 @@ function App(){
     </div>
   );
 
+  // -- Layout ------------------------------------------------------------------
   return(
     <div style={{height:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
 
-      {/*    HEADER    */}
+      {/* HEADER */}
       <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:10,height:10,borderRadius:'50%',background:modeColor,boxShadow:'0 0 8px '+modeColor}} className={isActive?'pulse':''}/>
           <span style={{fontSize:17,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
-          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700,borderRadius:3}}>{dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}</span>
+          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700,borderRadius:3}}>
+            {dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}
+          </span>
+          {/* Paper trading badge --- always visible in live mode */}
+          {dataMode==='live'&&(
+            <span style={{fontSize:10,color:'#fbbf24',border:'1px solid #fbbf2444',background:'#1c110033',padding:'3px 8px',fontWeight:700,borderRadius:3,letterSpacing:'0.06em'}}>PAPER</span>
+          )}
           {isDemoMode&&<span style={{fontSize:11,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'3px 8px',fontWeight:700,borderRadius:3}} className="pulse">DEMO {demoProgress}%</span>}
           <div style={{width:8,height:8,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
           <span style={{fontSize:11,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
           <span style={{fontSize:11,color:'#475569'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
-          <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
-          <span style={{fontSize:12,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
+          {portfolio.loaded?(
+            <>
+              <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+              <span style={{fontSize:12,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
+            </>
+          ):(
+            <span style={{fontSize:13,color:'#334155'}}>-- Connect to load account --</span>
+          )}
           {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#ef4444',border:'1px solid #ef444433',padding:'3px 8px',borderRadius:3}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
           {dataMode==='idle'
             ?<button onClick={connectLive} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c100044',cursor:'pointer',borderRadius:4}}>Connect Live</button>
@@ -1416,15 +1574,15 @@ function App(){
         </div>
       </div>
 
-      {/*    KPI BAR    */}
+      {/* KPI BAR */}
       {!isMobile&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#0a0a10',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
           {[
-            {l:'EQUITY',v:'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}),s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#22c55e':'#ef4444'},
+            {l:'EQUITY',v:portfolio.loaded?'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#22c55e':'#ef4444'},
             {l:'OPEN P&L',v:pnlFmt(openPnl),s:portfolio.positions.length+' open',vc:openPnl>=0?'#22c55e':'#ef4444'},
             {l:'REALISED',v:pnlFmt(realPnl),s:closed.length+' trades',vc:realPnl>=0?'#22d3ee':'#ef4444'},
             {l:'WIN RATE',v:winRate!=null?winRate+'%':'--',s:wins+'W '+(closed.length-wins)+'L',vc:'#a78bfa'},
-            {l:'CASH',v:'$'+portfolio.cash.toLocaleString('en-US',{maximumFractionDigits:0}),s:((portfolio.cash/equity)*100).toFixed(0)+'%',vc:'#fbbf24'},
+            {l:'CASH',v:portfolio.loaded?'$'+(portfolio.cash||0).toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:portfolio.loaded?((portfolio.cash/equity)*100||0).toFixed(0)+'%':'--',vc:'#fbbf24'},
             {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#facc15'},
           ].map(({l,v,s,vc},i)=>(
             <div key={i} style={{background:'#07070c',padding:'8px 14px'}}>
@@ -1436,18 +1594,16 @@ function App(){
         </div>
       )}
 
-      {/*    RISK ALERTS    */}
+      {/* RISK ALERTS */}
       {riskAlerts.length>0&&(
         <div style={{padding:'4px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
           {riskAlerts.map((a,i)=>(
-            <span key={i} style={{fontSize:11,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'3px 8px',borderRadius:3}}>
-              {a.msg}
-            </span>
+            <span key={i} style={{fontSize:11,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'3px 8px',borderRadius:3}}>{a.msg}</span>
           ))}
         </div>
       )}
 
-      {/*    MAIN BODY    */}
+      {/* MAIN BODY */}
       {isMobile?(
         <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
           <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
@@ -1469,15 +1625,9 @@ function App(){
           </div>
         </div>
       ):(
-        /* ====== DESKTOP LAYOUT ====== */
         <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 320px',minHeight:0,overflow:'hidden'}}>
-
-          {/* ---- LEFT: Scanner top, Chart bottom ---- */}
           <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',borderRight:'1px solid #0f0f14'}}>
-
-            {/* Scanner   top half */}
             <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',borderBottom:'2px solid #0f0f18'}}>
-              {/* Tab bar */}
               <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0,overflowX:'auto'}}>
                 {[['screener','Scanner'],['positions','Positions ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Trade Log'],['history','History']].map(([t,l])=>(
                   <button key={t} onClick={()=>setTab(t)}
@@ -1497,10 +1647,7 @@ function App(){
                 {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);}}/>}
               </div>
             </div>
-
-            {/* Chart   bottom half, fills the blank space */}
             <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',background:'#060608'}}>
-              {/* Symbol picker */}
               <div style={{display:'flex',gap:2,padding:'5px 10px',flexWrap:'wrap',borderBottom:'1px solid #0a0a12',background:'#07070c',flexShrink:0,overflowX:'auto'}}>
                 {SEEDS.map(s=>(
                   <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)}
@@ -1513,25 +1660,15 @@ function App(){
                   </button>
                 ))}
               </div>
-              {/* Demo controls inline above chart */}
               {demoControls}
-              {/* Chart fills remaining space */}
               <div style={{flex:1,minHeight:0}}>
-                <StockChart
-                  symbol={selectedSym}
-                  livePrice={livePrices.current[selectedSym]}
-                  demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]}
-                  isDemoMode={isDemoMode}/>
+                <StockChart symbol={selectedSym} livePrice={livePrices.current[selectedSym]} demoData={isDemoMode?(demoAllDataRef.current[selectedSym]||[]):[]} isDemoMode={isDemoMode}/>
               </div>
             </div>
-
           </div>
-
-          {/* ---- RIGHT: Auto-Execute + Positions + Settings + Log ---- */}
           <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
             {rightPanel}
           </div>
-
         </div>
       )}
     </div>
