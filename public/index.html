@@ -847,7 +847,7 @@ function App(){
         isAuto:true,isDemo:!!isDemo
       });
       addLog('['+(isDemo?'DEMO':'AUTO')+'.'+(best.entryType||'BUY')+'] '+best.symbol+
-        ' @ '+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
+        ' x'+shares.toFixed(3)+' @ '+usd(best.price)+' = '+usd(tradeVal)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
     }
     if(newPositions.length>0)
       setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
@@ -863,20 +863,24 @@ function App(){
     return()=>clearInterval(id);
   },[dataMode,autoEnterTrades]);
 
+  // manualTrade reads from refs so it is NEVER stale regardless of render timing
   const manualTrade=useCallback((s)=>{
-    // Use ATR-based SL/TP so stops are always realistic
+    const lotSize=manualAmtRef.current||2000;
+    const cash=portfolioRef.current.cash;
+    if(cash<100){addLog('[SKIP] Not enough cash (have '+usd(cash)+')','warn');return;}
+    const posSize=Math.min(lotSize, cash*0.95);
+    const shares=f4(posSize/s.price);
+    if(shares<=0){addLog('[SKIP] Shares=0','warn');return;}
+    const actualCost=f2(shares*s.price);
     const atr=s.atr||f2(s.price*(s.vol||0.02));
     const slMult={'PULLBACK':1.5,'BREAKOUT':1.2,'BOUNCE':1.8,'CROSS':1.4,'SCALP':1.0}[s.entryType]||1.5;
     const tpMult={'PULLBACK':3.0,'BREAKOUT':4.0,'BOUNCE':2.5,'CROSS':3.0,'SCALP':2.0}[s.entryType]||3.0;
     const sl=f2(s.price-atr*slMult);
     const tp=f2(s.price+atr*tpMult);
     const rr=+((tp-s.price)/(s.price-sl)).toFixed(2);
-    const posSize=Math.min(manualAmt,portfolioRef.current.cash*0.9);
-    if(posSize<10){addLog('[SKIP] Insufficient cash','warn');return;}
-    const shares=f4(posSize/s.price);
     setPortfolio(p=>({
       ...p,
-      cash:f2(p.cash-f2(shares*s.price)),
+      cash:f2(p.cash-actualCost),
       positions:[...p.positions,{
         id:Math.random().toString(36).slice(2,9),
         symbol:s.symbol,shares,
@@ -890,10 +894,10 @@ function App(){
         isAuto:false
       }]
     }));
-    addLog('[MANUAL] '+s.symbol+' @ '+usd(s.price)+' SL:'+usd(sl)+' TP:'+usd(tp),'trade');
-    // Stay on screener - do NOT switch tabs so user can keep clicking more trades
+    addLog('[BUY] '+s.symbol+' x'+shares.toFixed(3)+' @ '+usd(s.price)+
+      ' = '+usd(actualCost)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
     setSelectedSym(s.symbol);
-  },[manualAmt,addLog]);
+  },[addLog]);
 
   const closeManual=id=>{
     setPortfolio(prev=>{
@@ -1128,14 +1132,20 @@ function App(){
                   {/* Action */}
                   <td style={{padding:'12px 12px'}}>
                     {isBuy&&!held&&(
-                      <button onClick={e=>{e.stopPropagation();manualTrade(s);}}
-                        style={{padding:'10px 22px',fontSize:14,fontWeight:800,
-                          border:'2px solid #16a34a',color:'#22c55e',
-                          background:'#0a1f0a',borderRadius:5,cursor:'pointer',
-                          whiteSpace:'nowrap',letterSpacing:'0.03em',
-                          boxShadow:'0 0 10px #22c55e22'}}>
-                        + Buy
-                      </button>
+                      <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-start'}}>
+                        <button onClick={e=>{e.stopPropagation();manualTrade(s);}}
+                          style={{padding:'10px 22px',fontSize:14,fontWeight:800,
+                            border:'2px solid #16a34a',color:'#22c55e',
+                            background:'#0a1f0a',borderRadius:5,cursor:'pointer',
+                            whiteSpace:'nowrap',letterSpacing:'0.03em',
+                            boxShadow:'0 0 10px #22c55e22'}}>
+                          + Buy
+                        </button>
+                        {/* Live preview: shows exactly how many shares + cost at current lot size */}
+                        <span style={{fontSize:10,color:'#334155',fontFamily:'monospace'}}>
+                          {f4(Math.min(manualAmt,portfolio.cash*0.95)/s.price).toFixed(3)} shares = {usd(Math.min(manualAmt,portfolio.cash*0.95))}
+                        </span>
+                      </div>
                     )}
                     {held&&(
                       <span style={{fontSize:12,fontWeight:700,color:'#a78bfa',
