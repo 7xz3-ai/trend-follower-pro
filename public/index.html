@@ -50,8 +50,8 @@ const SEEDS=[
   {symbol:'RIVN',price:13,vol:0.050,baseRsi:41,tier:'GRWTH'},
 ];
 const TIER_COLOR={MEGA:'#22d3ee',SEMI:'#a78bfa',ETF:'#38bdf8',GRWTH:'#fbbf24'};
-const TIMEFRAMES=['tick','1min','5min','15min','30min','1hr','4hr','1day'];
-const TF_API={'1min':'1Min','5min':'5Min','15min':'15Min','30min':'30Min','1hr':'1Hour','4hr':'4Hour','1day':'1Day'};
+const TIMEFRAMES=['1min','5min','15min','30min','1hr','4hr','1day','1W','1M'];
+const TF_API={'1min':'1Min','5min':'5Min','15min':'15Min','30min':'30Min','1hr':'1Hour','4hr':'4Hour','1day':'1Day','1W':'1Day','1M':'1Day'};
 const INITIAL_EQUITY=100000;
 const WS_TIMEOUT=4000;
 
@@ -156,20 +156,46 @@ function computeSignal(prev,newPrice){
 
 function evaluateExit(pos,newPrice,sig,cfg,nowMs){
   const profitPts=newPrice-pos.entryPrice;
+  const atr=pos.atr||f2(pos.entryPrice*0.02);
   const hwm=Math.max(pos.hwm??pos.entryPrice,newPrice);
-  const trailSL=f2(hwm-sig.atr*cfg.trailMult);
-  const bestSL=Math.max(pos.stopLoss,trailSL);
   const heldSec=(nowMs-pos.enteredAt)/1000;
-  const profInAtrs=profitPts/(pos.atr||0.001);
-  // Breakeven fast -- as soon as 0.5 ATR in profit
-  const beSL=profInAtrs>=0.5?Math.max(bestSL,pos.entryPrice+0.01):bestSL;
-  if(newPrice<=beSL)return{close:true,reason:beSL>pos.entryPrice?'BREAKEVEN_STOP':'STOP_LOSS',hwm,newSL:beSL};
-  if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:beSL};
-  if(sig.rsi>=68&&sig.momentum<=0&&profInAtrs>=0.5)return{close:true,reason:'RSI_PEAK_EXIT',hwm,newSL:beSL};
-  if(profInAtrs>=0.8&&sig.momentum<-0.04)return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:beSL};
-  if(profInAtrs>=0.7&&newPrice<sig.ema9)return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:beSL};
-  if(heldSec>=cfg.maxHoldSec)return{close:true,reason:'TIME_EXIT',hwm,newSL:beSL};
-  return{close:false,reason:null,hwm,newSL:beSL};
+  const profInAtrs=profitPts/atr;
+
+  // Trailing stop: starts at original SL, tightens as price moves up
+  const trailSL=f2(hwm-atr*(pos.trailMult||1.0));
+  let activeSL=Math.max(pos.stopLoss,trailSL);
+
+  // -- Move to BREAKEVEN once 1.0 ATR in profit ------------------------------
+  // This is the critical rule: once we're up 1 ATR, we cannot lose money
+  if(profInAtrs>=1.0){
+    activeSL=Math.max(activeSL, pos.entryPrice+f2(atr*0.1)); // just above entry
+  }
+  // -- Lock in 50% of profit once 2.0 ATRs ahead -----------------------------
+  if(profInAtrs>=2.0){
+    const halfProfit=pos.entryPrice+f2(profitPts*0.5);
+    activeSL=Math.max(activeSL, halfProfit);
+  }
+
+  // Hard stop hit
+  if(newPrice<=activeSL){
+    const reason=activeSL>pos.entryPrice+atr*0.05?'BREAKEVEN_STOP':
+                 activeSL>pos.entryPrice?'TRAILING_STOP':'STOP_LOSS';
+    return{close:true,reason,hwm,newSL:activeSL};
+  }
+  // Take profit hit
+  if(newPrice>=pos.takeProfit)return{close:true,reason:'TAKE_PROFIT',hwm,newSL:activeSL};
+  // RSI overbought AND momentum fading AND we have decent profit - exit
+  if(sig.rsi>=70&&sig.momentum<=0.01&&profInAtrs>=1.5)
+    return{close:true,reason:'RSI_EXIT',hwm,newSL:activeSL};
+  // Strong momentum reversal with profit - protect it
+  if(profInAtrs>=1.0&&sig.momentum<-0.06)
+    return{close:true,reason:'MOMENTUM_REVERSAL',hwm,newSL:activeSL};
+  // Price fell back below EMA9 after good run
+  if(profInAtrs>=1.0&&newPrice<sig.ema9&&sig.momentum<0)
+    return{close:true,reason:'PROFIT_PROTECT',hwm,newSL:activeSL};
+  // Max hold time
+  if(heldSec>=cfg.maxHoldSec)return{close:true,reason:'TIME_EXIT',hwm,newSL:activeSL};
+  return{close:false,reason:null,hwm,newSL:activeSL};
 }
 
 // Generate realistic intraday bars for ONE symbol with a market-regime bias
@@ -220,7 +246,7 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
   const seriesRef=useRef(null);
   const markersRef=useRef([]);
   const tickBuf=useRef({});
-  const [tf,setTf]=useState('5min');
+  const [tf,setTf]=useState('1day');
   const [loading,setLoading]=useState(false);
   const [err,setErr]=useState(null);
   const seed=SEEDS.find(s=>s.symbol===symbol);
@@ -258,17 +284,41 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
       seriesRef.current.setData(bars);chartRef.current.timeScale().fitContent();return;
     }
     setLoading(true);setErr(null);
-    fetch('/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=300')
+    // Route 1W/1M/1day to the paginated history endpoint (30+ days of data)
+    const useHistory=(tf==='1day'||tf==='1W'||tf==='1M');
+    const days=tf==='1M'?30:tf==='1W'?7:30;
+    const histTf=tf==='1W'?'1Hour':'1Day';
+    const url=useHistory
+      ?'/api/history/'+symbol+'?timeframe='+histTf+'&days='+days
+      :'/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=390';
+    fetch(url)
       .then(r=>r.json()).then(data=>{
         if(data.error)throw new Error(data.error);
-        const bars=(data.bars||[]).map(b=>({time:Math.floor(new Date(b.t).getTime()/1000),open:b.o,high:b.h,low:b.l,close:b.c})).filter(b=>b.time>0).sort((a,b)=>a.time-b.time);
-        if(bars.length>0){seriesRef.current.setData(bars);chartRef.current.timeScale().fitContent();}
-        else{
+        // History endpoint returns {bars:[...]}, bars endpoint also {bars:[...]}
+        const raw=data.bars||[];
+        const bars=raw.map(b=>({
+          time:Math.floor(new Date(b.t).getTime()/1000),
+          open:b.o,high:b.h,low:b.l,close:b.c
+        })).filter(b=>b.time>0&&b.open>0&&b.high>0&&b.low>0&&b.close>0)
+           .sort((a,b2)=>a.time-b2.time);
+        if(bars.length>0){
+          seriesRef.current.setData(bars);
+          chartRef.current.timeScale().fitContent();
+          chartRef.current.timeScale().scrollToRealTime();
+        } else {
+          // Synthetic fallback - generate realistic multi-day data
           const now=Math.floor(Date.now()/1000);
-          const iv={'1min':60,'15min':900,'30min':1800,'1hr':3600,'4hr':14400,'1day':86400}[tf]||300;
+          const iv={'1min':60,'5min':300,'15min':900,'30min':1800,'1hr':3600,'4hr':14400,'1day':86400,'1W':3600,'1M':86400}[tf]||300;
+          const count=useHistory?(days*(tf==='1W'?8:1)):200;
           const sb=[];let p=seed?.price||100;
-          for(let i=200;i>=0;i--){p=Math.max(0.01,f2(p*(1+(seed?.vol||0.02)*0.5*(Math.random()*2-1))));const o=f2(p*(1+(Math.random()-0.5)*0.005));sb.push({time:now-i*iv,open:o,high:f2(Math.max(p,o)*1.003),low:f2(Math.min(p,o)*0.997),close:p});}
-          seriesRef.current.setData(sb);chartRef.current.timeScale().fitContent();setErr('Mkt closed -- sim data');
+          for(let i=count;i>=0;i--){
+            const drift=0.0002*(Math.random()-0.48);
+            p=Math.max(0.01,f2(p*(1+drift+(seed?.vol||0.02)*0.4*(Math.random()*2-1))));
+            const o=f2(p*(1+(Math.random()-0.5)*0.006));
+            sb.push({time:now-i*iv,open:o,high:f2(Math.max(p,o)*(1+Math.random()*(seed?.vol||0.02)*0.5)),low:f2(Math.min(p,o)*(1-Math.random()*(seed?.vol||0.02)*0.5)),close:p});
+          }
+          seriesRef.current.setData(sb);chartRef.current.timeScale().fitContent();
+          setErr('No API data -- synthetic');
         }
         setLoading(false);
       }).catch(e=>{setErr(e.message);setLoading(false);});
@@ -297,7 +347,7 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
         {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #7c3aed44',padding:'1px 4px'}}>DEMO</span>}
         <div style={{marginLeft:'auto',display:'flex',gap:2,flexWrap:'wrap'}}>
           {TIMEFRAMES.map(t=>(
-            <button key={t} onClick={()=>setTf(t)} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===t?'#22d3ee44':'#1a1a2e'),color:tf===t?'#22d3ee':'#334155',background:tf===t?'#0a1f2e':'transparent',cursor:'pointer'}}>
+            <button key={t} onClick={()=>setTf(t)} style={{padding:'3px 7px',fontSize:10,fontWeight:700,border:'1px solid '+(tf===t?'#22d3ee66':'#1a1a2e'),color:tf===t?'#22d3ee':'#475569',background:tf===t?'#0a1f2e':'transparent',cursor:'pointer',borderRadius:3,whiteSpace:'nowrap'}}>
               {t.toUpperCase()}
             </button>
           ))}
@@ -582,7 +632,7 @@ function App(){
   const [portfolio,setPortfolio]=useState({cash:INITIAL_EQUITY,positions:[],history:[]});
   const [dataMode,setDataMode]=useState('idle');
   const [autoOn,setAutoOn]=useState(false);
-  const [tab,setTab]=useState('chart');
+  const [tab,setTab]=useState('screener');
   const [mobileTab,setMobileTab]=useState('chart');
   const [selectedSym,setSelectedSym]=useState('NVDA');
   const [sysLog,setSysLog]=useState([]);
@@ -601,6 +651,7 @@ function App(){
 
   const stocksRef=useRef(stocks);const portfolioRef=useRef(portfolio);
   const cfgRef=useRef(cfg);const autoOnRef=useRef(autoOn);
+  const manualAmtRef=useRef(manualAmt);
   const cooldowns=useRef({});const wsRef=useRef(null);
   const logBuf=useRef([]);const livePrices=useRef({});
   const demoIdxRef=useRef(0);
@@ -610,7 +661,8 @@ function App(){
   const demoAutoRef=useRef(true);
 
   stocksRef.current=stocks;portfolioRef.current=portfolio;
-  cfgRef.current=cfg;autoOnRef.current=autoOn;demoAutoRef.current=demoAutoOn;
+  cfgRef.current=cfg;autoOnRef.current=autoOn;
+  demoAutoRef.current=demoAutoOn;manualAmtRef.current=manualAmt;
 
   useEffect(()=>{const h=()=>setIsMobile(window.innerWidth<=768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
   useEffect(()=>{const id=setInterval(()=>setMktStatus(getMarketStatus()),15000);return()=>clearInterval(id);},[]);
@@ -713,56 +765,17 @@ function App(){
     return()=>clearInterval(id);
   },[demoState,demoMode,processTick,addLog]);
 
-  // Demo auto-trader -- fires independently when demoAutoOn
+  // Demo auto-trader -- uses shared autoEnterTrades with relaxed threshold
   useEffect(()=>{
     if(demoState!=='running')return;
     const id=setInterval(()=>{
       if(!demoAutoRef.current)return;
-      const c=cfgRef.current,port=portfolioRef.current;
-      const openSlots=c.maxPositions-port.positions.length;
-      if(openSlots<=0)return;
-      const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-      const held=new Set(port.positions.map(p=>p.symbol));
-      const now=Date.now();
-      // In demo, use relaxed thresholds so it actually trades
-      const minStr=Math.min(c.minStrength,40);
-      const minRR=Math.min(c.minRR,1.0);
-      const candidates=stocksRef.current
-        .filter(s=>
-          s.signal==='BUY'&&
-          s.signalStrength>=minStr&&
-          s.riskReward!==null&&s.riskReward>=minRR&&
-          s.stopLoss&&s.takeProfit&&
-          !held.has(s.symbol)&&
-          (!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)
-        )
-        .sort((a,b)=>b.signalStrength-a.signalStrength)
-        .slice(0,openSlots);
-      if(!candidates.length)return;
-      const newPositions=[];let cashLeft=port.cash;
-      for(const best of candidates){
-        const riskAmt=equity*(c.riskPct/100);
-        const stopDist=Math.max(best.price-best.stopLoss,0.01);
-        const shares=f4(riskAmt/stopDist);
-        const tradeVal=f2(shares*best.price);
-        if(tradeVal>cashLeft*0.95||tradeVal/equity>0.18)continue;
-        cashLeft=f2(cashLeft-tradeVal);
-        newPositions.push({
-          id:Math.random().toString(36).slice(2,9),
-          symbol:best.symbol,shares,
-          entryPrice:best.price,currentPrice:best.price,
-          stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,
-          trailMult:c.trailMult,riskReward:best.riskReward,
-          atr:best.atr,strength:best.signalStrength,
-          entryType:best.entryType,enteredAt:now,
-          t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true,isDemo:true
-        });
-        addLog('[DEMO.'+(best.entryType||'AUTO')+'] '+best.symbol+' @ '+usd(best.price)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
-      }
-      if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
-    },900);
+      // Lower threshold in demo so we actually see trades - still meaningful signals
+      const minStr=Math.max(30, cfgRef.current.minStrength-15);
+      autoEnterTrades(minStr, true);
+    },1200);
     return()=>clearInterval(id);
-  },[demoState,addLog]);
+  },[demoState,autoEnterTrades]);
 
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting...');
@@ -786,46 +799,101 @@ function App(){
     return()=>clearInterval(id);
   },[dataMode,processTick]);
 
+  // Shared auto-entry function - used by both live and demo engines
+  const autoEnterTrades=useCallback((minStr,isDemo)=>{
+    const c=cfgRef.current,port=portfolioRef.current;
+    const openSlots=c.maxPositions-port.positions.length;
+    if(openSlots<=0)return;
+    const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
+    const held=new Set(port.positions.map(p=>p.symbol));
+    const now=Date.now();
+    const candidates=stocksRef.current
+      .filter(s=>
+        s.signal==='BUY' &&
+        s.signalStrength>=minStr &&
+        !held.has(s.symbol) &&
+        s.price>0 && s.atr>0 &&
+        (!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000)
+      )
+      .sort((a,b)=>b.signalStrength-a.signalStrength)
+      .slice(0,openSlots);
+    if(!candidates.length)return;
+    const newPositions=[];
+    let cashLeft=port.cash;
+    for(const best of candidates){
+      // POSITION SIZING: same $ amount as the position size slider
+      const posAmt=manualAmtRef.current||2000;
+      const tradeVal=f2(Math.min(posAmt, equity*0.20, cashLeft*0.92));
+      if(tradeVal<50)continue; // need the cash
+      const shares=f4(tradeVal/best.price);
+      if(shares<=0)continue;
+      // -- ATR-BASED SL/TP - always realistic, not dependent on signal noise --
+      const atr=best.atr||f2(best.price*(best.vol||0.02));
+      const slMult={'PULLBACK':1.5,'BREAKOUT':1.2,'BOUNCE':2.0,'CROSS':1.4,'SCALP':1.0}[best.entryType]||1.5;
+      const tpMult={'PULLBACK':3.5,'BREAKOUT':5.0,'BOUNCE':3.0,'CROSS':3.5,'SCALP':2.0}[best.entryType]||3.0;
+      const sl=f2(best.price-atr*slMult);
+      const tp=f2(best.price+atr*tpMult);
+      const rr=+((tp-best.price)/(best.price-sl)).toFixed(2);
+      cashLeft=f2(cashLeft-tradeVal);
+      newPositions.push({
+        id:Math.random().toString(36).slice(2,9),
+        symbol:best.symbol,shares,
+        entryPrice:best.price,currentPrice:best.price,
+        stopLoss:sl,takeProfit:tp,hwm:best.price,
+        trailMult:c.trailMult,riskReward:rr,
+        atr,strength:best.signalStrength,
+        entryType:best.entryType,enteredAt:now,
+        t:new Date().toLocaleTimeString('en-GB',{hour12:false}),
+        isAuto:true,isDemo:!!isDemo
+      });
+      addLog('['+(isDemo?'DEMO':'AUTO')+'.'+(best.entryType||'BUY')+'] '+best.symbol+
+        ' @ '+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp)+' ('+best.signalStrength.toFixed(0)+'%)','trade');
+    }
+    if(newPositions.length>0)
+      setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
+  },[addLog]);
+
+  // Live / sim auto-engine
   useEffect(()=>{
-    if(dataMode==='idle'||dataMode==='connecting'||dataMode==='demo')return; // demo has its own auto-engine
+    if(dataMode==='idle'||dataMode==='connecting'||dataMode==='demo')return;
     const id=setInterval(()=>{
       if(!autoOnRef.current)return;
-      const c=cfgRef.current,port=portfolioRef.current;
-      const openSlots=c.maxPositions-port.positions.length;
-      if(openSlots<=0)return;
-      const equity=port.cash+port.positions.reduce((a,p)=>a+p.shares*p.currentPrice,0);
-      const held=new Set(port.positions.map(p=>p.symbol));
-      const now=Date.now();
-      const candidates=stocksRef.current
-        .filter(s=>s.signal==='BUY'&&s.signalStrength>=c.minStrength&&s.riskReward!==null&&s.riskReward>=c.minRR&&s.stopLoss&&s.takeProfit&&!held.has(s.symbol)&&(!cooldowns.current[s.symbol]||now-cooldowns.current[s.symbol]>c.cooldownSec*1000))
-        .sort((a,b)=>b.signalStrength-a.signalStrength)
-        .slice(0,openSlots);
-      if(!candidates.length)return;
-      const newPositions=[];let cashLeft=port.cash;
-      for(const best of candidates){
-        const riskAmt=equity*(c.riskPct/100);
-        const stopDist=best.price-best.stopLoss;
-        if(stopDist<=0)continue;
-        const shares=f4(riskAmt/stopDist);
-        const tradeVal=f2(shares*best.price);
-        if(tradeVal>cashLeft*0.95||tradeVal/equity>0.20)continue;
-        cashLeft=f2(cashLeft-tradeVal);
-        newPositions.push({id:Math.random().toString(36).slice(2,9),symbol:best.symbol,shares,entryPrice:best.price,currentPrice:best.price,stopLoss:best.stopLoss,takeProfit:best.takeProfit,hwm:best.price,trailMult:c.trailMult,riskReward:best.riskReward,atr:best.atr,strength:best.signalStrength,entryType:best.entryType,enteredAt:now,t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:true});
-        addLog('[AUTO.'+(best.entryType||'SIG')+'] '+best.symbol+' @ '+usd(best.price)+' '+best.signalStrength.toFixed(0)+'%','trade');
-      }
-      if(newPositions.length>0)setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
-    },800);
+      autoEnterTrades(cfgRef.current.minStrength, false);
+    },1000);
     return()=>clearInterval(id);
-  },[dataMode,addLog]);
+  },[dataMode,autoEnterTrades]);
 
-  const manualTrade=s=>{
-    if(!s.stopLoss||!s.takeProfit){addLog('[SKIP] No SL/TP','warn');return;}
-    if(portfolio.cash<manualAmt){addLog('[SKIP] Low cash','warn');return;}
-    const shares=f4(manualAmt/s.price);
-    setPortfolio(p=>({...p,cash:f2(p.cash-manualAmt),positions:[...p.positions,{id:Math.random().toString(36).slice(2,9),symbol:s.symbol,shares,entryPrice:s.price,currentPrice:s.price,stopLoss:s.stopLoss,takeProfit:s.takeProfit,hwm:s.price,trailMult:cfg.trailMult,riskReward:s.riskReward,atr:s.atr,strength:s.signalStrength,enteredAt:Date.now(),t:new Date().toLocaleTimeString('en-GB',{hour12:false}),isAuto:false}]}));
-    addLog('[MANUAL] '+s.symbol+' @ '+usd(s.price),'trade');
-    setSelectedSym(s.symbol);setTab('chart');if(isMobile)setMobileTab('chart');
-  };
+  const manualTrade=useCallback((s)=>{
+    // Use ATR-based SL/TP so stops are always realistic
+    const atr=s.atr||f2(s.price*(s.vol||0.02));
+    const slMult={'PULLBACK':1.5,'BREAKOUT':1.2,'BOUNCE':1.8,'CROSS':1.4,'SCALP':1.0}[s.entryType]||1.5;
+    const tpMult={'PULLBACK':3.0,'BREAKOUT':4.0,'BOUNCE':2.5,'CROSS':3.0,'SCALP':2.0}[s.entryType]||3.0;
+    const sl=f2(s.price-atr*slMult);
+    const tp=f2(s.price+atr*tpMult);
+    const rr=+((tp-s.price)/(s.price-sl)).toFixed(2);
+    const posSize=Math.min(manualAmt,portfolioRef.current.cash*0.9);
+    if(posSize<10){addLog('[SKIP] Insufficient cash','warn');return;}
+    const shares=f4(posSize/s.price);
+    setPortfolio(p=>({
+      ...p,
+      cash:f2(p.cash-f2(shares*s.price)),
+      positions:[...p.positions,{
+        id:Math.random().toString(36).slice(2,9),
+        symbol:s.symbol,shares,
+        entryPrice:s.price,currentPrice:s.price,
+        stopLoss:sl,takeProfit:tp,hwm:s.price,
+        trailMult:cfgRef.current.trailMult,
+        riskReward:rr,atr,
+        strength:s.signalStrength,entryType:s.entryType,
+        enteredAt:Date.now(),
+        t:new Date().toLocaleTimeString('en-GB',{hour12:false}),
+        isAuto:false
+      }]
+    }));
+    addLog('[MANUAL] '+s.symbol+' @ '+usd(s.price)+' SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+    // Stay on screener - do NOT switch tabs so user can keep clicking more trades
+    setSelectedSym(s.symbol);
+  },[manualAmt,addLog]);
 
   const closeManual=id=>{
     setPortfolio(prev=>{
@@ -1258,15 +1326,32 @@ function App(){
         )}
       </div>
 
-      {/* Engine Settings */}
-      <div style={{padding:'10px 14px',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
-        <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:8}}>Engine Settings</div>
+      {/* Trade Size + Engine Settings */}
+      <div style={{padding:'12px 14px',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+        <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:10}}>Trade Settings</div>
+
+        {/* Lot size - the most important control */}
+        <div style={{marginBottom:12,background:'#0a0a14',padding:'10px 12px',borderRadius:5,border:'1px solid #1e293b'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <span style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Position Size ($ per trade)</span>
+            <span style={{fontSize:14,fontWeight:800,color:'#fbbf24'}}>${manualAmt.toLocaleString()}</span>
+          </div>
+          <input type="range" min={500} max={20000} step={500} value={manualAmt}
+            onChange={e=>setManualAmt(Number(e.target.value))}
+            style={{width:'100%',height:6,accentColor:'#fbbf24',marginBottom:4}}/>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#334155'}}>
+            <span>$500</span>
+            <span style={{color:'#64748b'}}>Each auto + manual trade uses this amount</span>
+            <span>$20k</span>
+          </div>
+        </div>
+
         {[
-          {k:'maxPositions',l:'Max open trades',min:1,max:10,step:1,sfx:''},
-          {k:'riskPct',l:'Risk per trade',min:0.5,max:5,step:0.5,sfx:'%'},
-          {k:'minStrength',l:'Min signal strength',min:30,max:95,step:1,sfx:'%'},
-          {k:'cooldownSec',l:'Cooldown between',min:5,max:300,step:5,sfx:'s'},
-          {k:'maxHoldSec',l:'Max hold time',min:30,max:900,step:30,sfx:'s'},
+          {k:'maxPositions',l:'Max simultaneous trades',min:1,max:12,step:1,sfx:''},
+          {k:'minStrength',l:'Min signal strength to enter',min:25,max:90,step:5,sfx:'%'},
+          {k:'cooldownSec',l:'Wait between trades (same stock)',min:5,max:300,step:5,sfx:'s'},
+          {k:'maxHoldSec',l:'Force-close trade after',min:30,max:1800,step:30,sfx:'s'},
+          {k:'trailMult',l:'Trailing stop (x ATR)',min:0.3,max:3,step:0.1,sfx:'x'},
         ].map(({k,l,min,max,step,sfx})=>(
           <div key={k} style={{marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:3}}>
