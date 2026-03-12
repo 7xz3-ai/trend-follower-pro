@@ -1,4 +1,5 @@
 'use strict';
+const fs        = require('fs');
 const express   = require('express');
 const http      = require('http');
 const https     = require('https');
@@ -20,17 +21,60 @@ const SYMBOLS = [
   'PLTR','NFLX','COIN','MARA','SOFI','RIVN'
 ];
 
-// orderId -> {symbol, qty, sl, tp, entryPrice, isAuto, enteredAt}
-// Child leg IDs (stop_loss/take_profit) also stored so closing fills are enriched.
+// orderId -> {symbol, qty, sl, tp, entryPrice, isAuto, enteredAt, legs:[]}
+// Child leg IDs (stop_loss/take_profit) are derived in memory; only parents written to disk.
 const orderMeta = new Map();
 
-function storeOrderMeta(order, sl, tp, qty, isAuto) {
-  const meta = { symbol: order.symbol, qty, sl, tp, entryPrice: null, isAuto: !!isAuto, enteredAt: Date.now() };
-  orderMeta.set(order.id, meta);
-  if (Array.isArray(order.legs)) {
-    order.legs.forEach(leg => orderMeta.set(leg.id, { ...meta, parentId: order.id, legType: leg.type }));
+// Persistent JSON store -- survives Railway restarts and sleep cycles.
+// We write atomically (tmp file then rename) to prevent corruption on crash.
+const META_FILE = path.join(__dirname, 'metadata.json');
+
+function loadMeta() {
+  try {
+    if (!fs.existsSync(META_FILE)) { console.log('[META] No metadata.json yet -- fresh start'); return; }
+    const entries = JSON.parse(fs.readFileSync(META_FILE, 'utf8'));
+    let loaded = 0;
+    for (const [id, meta] of Object.entries(entries)) {
+      orderMeta.set(id, meta);
+      // Re-derive child leg entries from stored leg list so enrichment works after restart
+      if (Array.isArray(meta.legs)) {
+        meta.legs.forEach(leg => orderMeta.set(leg.id, { ...meta, parentId: id, legType: leg.type }));
+      }
+      loaded++;
+    }
+    console.log('[META] Loaded', loaded, 'order record(s) from metadata.json');
+  } catch(e) {
+    console.log('[META] Load error (safe on first run):', e.message);
   }
-  setTimeout(() => orderMeta.delete(order.id), 86400000);
+}
+
+function saveMeta() {
+  try {
+    const toWrite = {};
+    // Only persist parent entries -- child leg copies are re-derived on load
+    for (const [id, meta] of orderMeta) {
+      if (!meta.parentId) toWrite[id] = meta;
+    }
+    const tmp = META_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(toWrite, null, 2), 'utf8');
+    fs.renameSync(tmp, META_FILE); // atomic replace
+  } catch(e) {
+    console.log('[META] Save error:', e.message);
+  }
+}
+
+function storeOrderMeta(order, sl, tp, qty, isAuto) {
+  // Capture leg IDs so we can re-derive them after a restart
+  const legs = Array.isArray(order.legs)
+    ? order.legs.map(leg => ({ id: leg.id, type: leg.type }))
+    : [];
+  const meta = { symbol: order.symbol, qty, sl, tp, entryPrice: null, isAuto: !!isAuto, enteredAt: Date.now(), legs };
+  orderMeta.set(order.id, meta);
+  // Index child legs in memory (not written to disk -- re-derived on load)
+  legs.forEach(leg => orderMeta.set(leg.id, { ...meta, parentId: order.id, legType: leg.type }));
+  saveMeta();
+  // Auto-expire after 24 h; remove from file too
+  setTimeout(() => { orderMeta.delete(order.id); saveMeta(); }, 86400000);
 }
 
 function httpsReq(hostname, method, apiPath, body) {
@@ -158,6 +202,7 @@ function connectTradeUpdates() {
       if (update.event === 'fill' && order.side === 'buy' && meta) {
         meta.entryPrice = parseFloat(order.filled_avg_price);
         orderMeta.set(order.id, meta);
+        saveMeta(); // persist real fill price so it survives restart
       }
 
       const payload = {
@@ -186,7 +231,8 @@ function connectTradeUpdates() {
       console.log('[TRADE]', update.event, order.side, order.symbol, order.status, 'filled:', order.filled_qty, '/', order.qty);
 
       if (['filled','canceled','expired','rejected'].includes(order.status)) {
-        setTimeout(() => orderMeta.delete(order.id), 120000);
+        // Keep in memory 2 min for late enrichment, then purge from disk too
+        setTimeout(() => { orderMeta.delete(order.id); saveMeta(); }, 120000);
       }
     }
   });
@@ -342,6 +388,48 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
+// -- Real ATR endpoint with per-symbol server-side cache ----------------------
+// Fetches last 15 five-minute bars and computes true ATR (14 TRs averaged).
+// True Range = max(High-Low, |High-PrevClose|, |Low-PrevClose|).
+// Result cached 60 seconds so the auto-engine never floods the data API.
+const atrCache = new Map(); // symbol -> { atr, price, ts, bars_used }
+const ATR_CACHE_TTL = 60000;
+
+function calcATR(bars) {
+  if (bars.length < 2) return null;
+  let trSum = 0;
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c;
+    trSum += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+  }
+  return trSum / (bars.length - 1);
+}
+
+app.get('/api/atr/:symbol', async (req, res) => {
+  const { symbol } = req.params;
+  if (!API_KEY) return res.status(401).json({ error: 'No API keys' });
+  // Serve cache if fresh enough
+  const cached = atrCache.get(symbol);
+  if (cached && Date.now() - cached.ts < ATR_CACHE_TTL) {
+    return res.json({ symbol, atr: cached.atr, price: cached.price, cached: true, bars_used: cached.bars_used });
+  }
+  try {
+    // 15 bars gives us 14 true-range values -- canonical ATR(14)
+    const data = await dataApi(`/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=5Min&limit=15&adjustment=raw&feed=iex`);
+    const bars = data.bars || [];
+    if (bars.length < 2) return res.status(400).json({ error: 'Insufficient data for ATR', symbol });
+    const atr  = calcATR(bars);
+    const price = bars[bars.length - 1].c;
+    const entry = { atr: parseFloat(atr.toFixed(4)), price, ts: Date.now(), bars_used: bars.length };
+    atrCache.set(symbol, entry);
+    console.log(`[ATR] ${symbol} ATR=${entry.atr} price=${price} bars=${bars.length}`);
+    res.json({ symbol, atr: entry.atr, price: entry.price, cached: false, bars_used: entry.bars_used });
+  } catch(e) {
+    console.log('[ATR] Error for', symbol, ':', e.message);
+    res.status(500).json({ error: e.message, symbol });
+  }
+});
+
 // Market data endpoints (unchanged)
 app.get('/api/bars/:symbol', (req, res) => {
   const { symbol } = req.params;
@@ -387,6 +475,7 @@ wss.on('connection', ws => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('[TFP] Server running on port', PORT, '(paper trading)');
+  loadMeta();          // restore orderMeta from disk before accepting connections
   connectAlpaca();
   connectTradeUpdates();
 });
