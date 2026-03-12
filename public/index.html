@@ -848,7 +848,7 @@ function App(){
   // -- Auto-entry engine --------------------------------------------------------
   // DEMO:  client-side portfolio mutation (unchanged from v6)
   // LIVE:  submits real bracket orders via POST /api/trade
-  const autoEnterTrades=useCallback((minStr,isDemo)=>{
+  const autoEnterTrades=useCallback(async(minStr,isDemo)=>{
     const c=cfgRef.current,port=portfolioRef.current;
     const openSlots=c.maxPositions-port.positions.length;
     if(openSlots<=0)return;
@@ -863,7 +863,7 @@ function App(){
     if(!candidates.length)return;
 
     if(isDemo){
-      // -- DEMO: full local simulation --------------------------------------
+      // -- DEMO: full local simulation (unchanged) --------------------------
       const newPositions=[];let cashLeft=port.cash;
       for(const best of candidates){
         const posAmt=manualAmtRef.current||2000;
@@ -888,19 +888,31 @@ function App(){
         setPortfolio(prev=>({...prev,cash:cashLeft,positions:[...prev.positions,...newPositions]}));
 
     } else {
-      // -- LIVE: submit real bracket orders to Alpaca via backend -----------
+      // -- LIVE: fetch real ATR, then submit bracket orders to Alpaca -------
+      // Mark all candidates pending BEFORE any async ops so the next 1-second
+      // interval tick cannot re-enter the same symbols while we await ATR.
+      candidates.forEach(best=>{
+        pendingOrders.current.add(best.symbol);
+        cooldowns.current[best.symbol]=now;
+      });
+      // Fetch real ATR(14) for all candidates in parallel.
+      // Server caches results 60 s, so this won't flood the data API.
+      const atrResults=await Promise.allSettled(
+        candidates.map(best=>fetch('/api/atr/'+best.symbol).then(r=>r.json()))
+      );
       const bp=port.buying_power||port.cash;
-      for(const best of candidates){
+      for(let i=0;i<candidates.length;i++){
+        const best=candidates[i];
         const posAmt=manualAmtRef.current||2000;
         const tradeVal=Math.min(posAmt,bp*0.20);
         const qtyInt=Math.max(1,Math.floor(tradeVal/best.price));
-        const atr=best.atr||f2(best.price*(best.vol||0.02));
+        // Use real server-computed ATR; fall back to signal approximation if fetch failed
+        const atrData=atrResults[i].status==='fulfilled'?atrResults[i].value:{};
+        const atr=atrData.atr||best.atr||f2(best.price*(best.vol||0.02));
+        const atrSrc=atrData.atr?'real':'est';
         const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:2.0,CROSS:1.4,SCALP:1.0}[best.entryType]||1.5;
         const tpMult={PULLBACK:3.5,BREAKOUT:5.0,BOUNCE:3.0,CROSS:3.5,SCALP:2.0}[best.entryType]||3.0;
         const sl=f2(best.price-atr*slMult),tp=f2(best.price+atr*tpMult);
-        // Mark as pending + set cooldown immediately to block re-entry while in flight
-        pendingOrders.current.add(best.symbol);
-        cooldowns.current[best.symbol]=now;
         fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({symbol:best.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:best.price,isAuto:true})
         }).then(r=>r.json()).then(data=>{
@@ -909,7 +921,7 @@ function App(){
             pendingOrders.current.delete(best.symbol);
           }else{
             addLog('[AUTO.'+(best.entryType||'BUY')+'] '+best.symbol+' x'+qtyInt+
-              ' @ ~'+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+              ' @ ~'+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp)+' ATR:'+usd(atr)+'('+atrSrc+')','trade');
           }
         }).catch(e=>{
           addLog('[AUTO ERROR] '+best.symbol+': '+e.message,'warn');
@@ -951,12 +963,19 @@ function App(){
     const posSize=Math.min(lotSize,bp*0.95);
     const qtyInt=Math.max(1,Math.floor(posSize/s.price));
     const actualCost=f2(qtyInt*s.price);
-    const atr=s.atr||f2(s.price*(s.vol||0.02));
+    // Fetch real ATR(14) from server before computing SL/TP.
+    // Server caches per-symbol for 60s so this is nearly instant on repeat clicks.
+    let atr=s.atr||f2(s.price*(s.vol||0.02));
+    let atrSrc='est';
+    try{
+      const atrResp=await fetch('/api/atr/'+s.symbol);
+      if(atrResp.ok){const atrData=await atrResp.json();if(atrData.atr){atr=atrData.atr;atrSrc='real';}}
+    }catch(e){/* fall back to signal approximation */}
     const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:1.8,CROSS:1.4,SCALP:1.0}[s.entryType]||1.5;
     const tpMult={PULLBACK:3.0,BREAKOUT:4.0,BOUNCE:2.5,CROSS:3.0,SCALP:2.0}[s.entryType]||3.0;
     const sl=f2(s.price-atr*slMult),tp=f2(s.price+atr*tpMult);
     addLog('[SUBMITTING] '+s.symbol+' x'+qtyInt+' @ ~'+usd(s.price)+' = '+usd(actualCost)+
-      ' | SL:'+usd(sl)+' TP:'+usd(tp),'trade');
+      ' | SL:'+usd(sl)+' TP:'+usd(tp)+' ATR:'+usd(atr)+'('+atrSrc+')','trade');
     try{
       const resp=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({symbol:s.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:s.price,isAuto:false})});
