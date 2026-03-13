@@ -1041,6 +1041,7 @@ function App(){
   //        Using POST+body instead of DELETE /:symbol eliminates any Express
   //        route-param ambiguity and works for any symbol format.
   const closePosition=useCallback(async(symbol)=>{
+    console.log('[DEBUG] closePosition called, symbol=',symbol,'mode=',dataModeRef.current);
     const isDemo=dataModeRef.current==='demo';
     addLog('[CLOSE] Button pressed for '+symbol+' (mode: '+dataModeRef.current+')','info');
     if(isDemo){
@@ -1495,7 +1496,7 @@ function App(){
                   <td style={{...td,color:'#ef4444',fontSize:9}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
                   <td style={{...td,color:'#22c55e',fontSize:9}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1797,7 +1798,7 @@ function App(){
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <span style={{fontSize:10,color:'#ef4444'}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
                     <span style={{fontSize:10,color:'#22c55e'}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
-                    <button onClick={e=>{e.stopPropagation();closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
+                    <button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
                   </div>
                 </div>
               );
