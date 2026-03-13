@@ -92,8 +92,10 @@ function httpsReq(hostname, method, apiPath, body) {
       let raw = '';
       res.on('data', c => raw += c);
       res.on('end', () => {
+        // 204 No Content and similar empty bodies are valid success responses
+        if (!raw.trim()) return resolve({});
         let parsed;
-        try { parsed = JSON.parse(raw); } catch { return reject(new Error('JSON parse error')); }
+        try { parsed = JSON.parse(raw); } catch { return reject(new Error(`JSON parse error (HTTP ${res.statusCode}): ${raw.slice(0,120)}`)); }
         if (res.statusCode >= 400) {
           const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
           err.status = res.statusCode; err.alpacaCode = parsed.code; err.body = parsed;
@@ -351,15 +353,19 @@ app.post('/api/trade', async (req, res) => {
   }
 });
 
-// Close a position by submitting market sell via Alpaca
+// Close a position by liquidating it and cancelling its bracket legs in one atomic call.
+// Without cancel_orders=true Alpaca returns 422 when SL/TP child orders are still open.
 app.delete('/api/position/:symbol', async (req, res) => {
   if (!API_KEY) return res.status(401).json({ error: 'No Alpaca API keys configured' });
   const { symbol } = req.params;
   try {
-    const result = await broker('DELETE', `/v2/positions/${encodeURIComponent(symbol)}`);
-    console.log('[CLOSE]', symbol, 'close order submitted');
-    res.json({ success: true, symbol, order_id: result.id });
+    // cancel_orders=true tells Alpaca to cancel the pending SL/TP bracket legs
+    // and then submit the market-sell to liquidate the position, all in one request.
+    const result = await broker('DELETE', `/v2/positions/${encodeURIComponent(symbol)}?cancel_orders=true`);
+    console.log('[CLOSE]', symbol, 'liquidated, order:', result.id || '(no id)');
+    res.json({ success: true, symbol, order_id: result.id || null });
   } catch(e) {
+    console.log('[CLOSE] Error for', symbol, ':', e.status, e.message);
     res.status(e.status || 500).json({ error: e.message, symbol });
   }
 });
@@ -455,7 +461,295 @@ app.get('/api/history/:symbol', async (req, res) => {
   }
 });
 
+// ============================================================================
+// BACKTEST ENGINE
+// computeSignalBT is an exact server-side mirror of the frontend computeSignal.
+// Any change to the live signal engine MUST be mirrored here to keep results
+// comparable with live paper-trading performance.
+// ============================================================================
+
+const f2bt   = v => Math.round(v * 100) / 100;
+const f4bt   = v => Math.round(v * 10000) / 10000;
+const clmpBt = (v, mn, mx) => Math.min(mx, Math.max(mn, v));
+
+function computeSignalBT(prev, newPrice, realAtr) {
+  const vol  = prev.vol  ?? 0.02;
+  const atr  = realAtr != null ? f2bt(realAtr) : f2bt(newPrice * vol);
+
+  const prevEma9   = prev.ema9   ?? newPrice;
+  const prevEma21  = prev.ema21  ?? newPrice;
+  const prevEma50  = prev.ema50  ?? newPrice;
+  const prevEma200 = prev.ema200 ?? newPrice;
+  const ema9   = f2bt(newPrice * 0.2   + prevEma9   * 0.8);
+  const ema21  = f2bt(newPrice * 0.09  + prevEma21  * 0.91);
+  const ema50  = f2bt(newPrice * 0.038 + prevEma50  * 0.962);
+  const ema200 = f2bt(newPrice * 0.01  + prevEma200 * 0.99);
+  const ema5   = f2bt(newPrice * 0.333 + ((prev.ema5 ?? newPrice) * 0.667));
+
+  const chg  = newPrice - (prev.price ?? newPrice);
+  const gain = chg > 0 ? chg : 0;
+  const loss = chg < 0 ? -chg : 0;
+  const prevAvgGain = prev.avgGain ?? (atr * 0.5);
+  const prevAvgLoss = prev.avgLoss ?? (atr * 0.5);
+  const avgGain = f4bt(prevAvgGain * 0.857 + gain * 0.143);
+  const avgLoss = f4bt(prevAvgLoss * 0.857 + loss * 0.143);
+  const rs  = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  const rsi = f2bt(clmpBt(100 - (100 / (1 + rs)), 5, 95));
+
+  const momentum = prev.price ? (newPrice - prev.price) / prev.price : 0;
+
+  const uptrend  = newPrice > ema21 && ema21 > ema50 && ema50 > ema200;
+  const weakUp   = newPrice > ema21 && ema21 > ema50;
+  const downtrend= newPrice < ema21 && ema21 < ema50;
+
+  const pullback = weakUp  && newPrice > ema9 && rsi >= 32 && rsi <= 56 && momentum > -0.08 && momentum < 0.20;
+  const breakout = (vol >= 0.020) && newPrice > ema5 && momentum > 0.04 && rsi >= 48 && rsi <= 72;
+  const bounce   = rsi >= 25 && rsi <= 44 && momentum > -0.05 && newPrice > ema9 * 0.998 && !downtrend;
+  const cross    = ema5 > ema9 && newPrice > ema9 && rsi >= 38 && rsi <= 68 && momentum >= 0;
+  const scalp    = newPrice > ema21 && momentum > 0.01 && rsi >= 35 && rsi <= 65 && !downtrend;
+
+  const s1 = pullback ? (0.62 + clmpBt((56 - rsi) / 56, 0, 0.25) + clmpBt(vol / 0.05, 0, 0.13)) : 0;
+  const s2 = breakout ? (0.60 + clmpBt(momentum / 0.3, 0, 0.22) + clmpBt(vol / 0.06, 0, 0.13)) : 0;
+  const s3 = bounce   ? (0.60 + clmpBt((44 - rsi) / 44, 0, 0.25) + clmpBt(vol / 0.05, 0, 0.10)) : 0;
+  const s4 = cross    ? (0.56 + clmpBt(momentum / 0.25, 0, 0.22) + clmpBt(vol / 0.05, 0, 0.12)) : 0;
+  const s5 = scalp    ? (0.50 + clmpBt(momentum / 0.20, 0, 0.20) + clmpBt(vol / 0.06, 0, 0.10)) : 0;
+
+  const bestScore = Math.max(s1, s2, s3, s4, s5);
+  const entryType = bestScore === s1 ? 'PULLBACK' : bestScore === s2 ? 'BREAKOUT' :
+                    bestScore === s3 ? 'BOUNCE'   : bestScore === s4 ? 'CROSS' : 'SCALP';
+  const strength  = clmpBt(bestScore * 100, 10, 98);
+
+  let signal = 'HOLD';
+  if (bestScore >= 0.50 && !downtrend) signal = 'BUY';
+  else if (rsi >= 75 || (downtrend && momentum < -0.10)) signal = 'SELL';
+
+  const slMult = { PULLBACK: 1.5, BREAKOUT: 1.2, BOUNCE: 2.0, CROSS: 1.4, SCALP: 1.0 }[entryType] || 1.5;
+  const tpMult = { PULLBACK: 3.5, BREAKOUT: 5.0, BOUNCE: 3.0, CROSS: 3.5, SCALP: 2.0 }[entryType] || 3.0;
+  const stopLoss   = signal === 'BUY' ? f2bt(newPrice - atr * slMult) : null;
+  const takeProfit = signal === 'BUY' ? f2bt(newPrice + atr * tpMult) : null;
+  const riskReward = stopLoss && takeProfit
+    ? +((takeProfit - newPrice) / (newPrice - stopLoss)).toFixed(2) : null;
+
+  return { atr, ema5, ema9, ema21, ema50, ema200, avgGain, avgLoss,
+    rsi, momentum, uptrend, weakUp, downtrend,
+    signal, signalStrength: f2bt(strength),
+    entryType: signal === 'BUY' ? entryType : null,
+    stopLoss, takeProfit, riskReward, price: newPrice, vol };
+}
+
+async function runBacktest({ symbols, days, timeframe, initialEquity, posAmt, maxPositions, minStrength, cooldownBars }) {
+  // -- 1. Fetch all bars (parallel batches of 4) -------------------------------
+  const end   = new Date();
+  const start = new Date(); start.setDate(start.getDate() - days);
+  console.log(`[BT] Starting: ${symbols.length} symbols, ${days} days, ${timeframe}`);
+
+  const allBars = {};
+  const BATCH = 4;
+  for (let i = 0; i < symbols.length; i += BATCH) {
+    const batch = symbols.slice(i, i + BATCH);
+    await Promise.all(batch.map(async sym => {
+      try {
+        allBars[sym] = await fetchAllBars(sym, timeframe, start.toISOString(), end.toISOString(), 20000);
+        console.log(`[BT] ${sym}: ${allBars[sym].length} bars`);
+      } catch(e) {
+        console.log(`[BT] ${sym}: fetch failed:`, e.message);
+        allBars[sym] = [];
+      }
+    }));
+  }
+
+  // -- 2. Build unified chronological timeline --------------------------------
+  const timeline = [];
+  for (const [sym, bars] of Object.entries(allBars)) {
+    for (const bar of bars) timeline.push({ sym, bar });
+  }
+  timeline.sort((a, b) => new Date(a.bar.t) - new Date(b.bar.t));
+  console.log(`[BT] Timeline: ${timeline.length} events`);
+
+  // -- 3. Simulation loop -----------------------------------------------------
+  const sigState   = {};   // sym -> last computeSignalBT output
+  const barWindow  = {};   // sym -> last 15 bars for true ATR
+  const cooldowns  = {};   // sym -> last entry bar index
+  const positions  = [];   // active simulated positions
+  const trades     = [];   // completed trades
+  let   cash       = initialEquity;
+  let   barIdx     = 0;
+
+  for (const { sym, bar } of timeline) {
+    barIdx++;
+    const price = bar.c;
+    const ts    = new Date(bar.t).getTime();
+
+    // Maintain rolling 15-bar window for ATR
+    if (!barWindow[sym]) barWindow[sym] = [];
+    barWindow[sym].push(bar);
+    if (barWindow[sym].length > 15) barWindow[sym].shift();
+
+    // -- Evaluate open positions for this symbol on this bar --
+    for (let i = positions.length - 1; i >= 0; i--) {
+      const pos = positions[i];
+      if (pos.symbol !== sym) continue;
+
+      let exitPx = null, exitType = null;
+      // Conservative: if both SL and TP hit in the same bar, stop wins.
+      if (bar.l <= pos.stopLoss) {
+        // Realistic gap fill: if the open is already below SL, exit at open
+        exitPx   = Math.min(bar.o, pos.stopLoss);
+        exitType = 'STOP_LOSS';
+      } else if (bar.h >= pos.takeProfit) {
+        exitPx   = pos.takeProfit;
+        exitType = 'TAKE_PROFIT';
+      }
+
+      if (exitPx !== null) {
+        const profit  = f2bt((exitPx - pos.entryPrice) * pos.shares);
+        cash         += f2bt(exitPx * pos.shares);
+        const heldMs  = ts - pos.enteredAt;
+        trades.push({
+          symbol:   pos.symbol,
+          type:     exitType,
+          entry:    pos.entryPrice,
+          exit:     exitPx,
+          profit,
+          rr:       pos.riskReward,
+          held:     Math.round(heldMs / 1000) + 's',
+          strategy: pos.entryType,
+          ts,
+          t:        new Date(ts).toLocaleTimeString('en-US', { hour12: false })
+        });
+        positions.splice(i, 1);
+        cooldowns[sym] = barIdx;
+      }
+    }
+
+    // -- Entry gate checks --
+    if (positions.some(p => p.symbol === sym)) {
+      // Already holding this symbol; just warm up the signal state
+      const prev = sigState[sym] || {};
+      sigState[sym] = { ...computeSignalBT(prev, price, calcATR(barWindow[sym]) || null), price };
+      continue;
+    }
+    if ((cooldowns[sym] || 0) && (barIdx - cooldowns[sym]) < cooldownBars) {
+      const prev = sigState[sym] || {};
+      sigState[sym] = { ...computeSignalBT(prev, price, calcATR(barWindow[sym]) || null), price };
+      continue;
+    }
+    if (positions.length >= maxPositions) {
+      const prev = sigState[sym] || {};
+      sigState[sym] = { ...computeSignalBT(prev, price, calcATR(barWindow[sym]) || null), price };
+      continue;
+    }
+
+    // -- Compute signal and optionally enter --
+    // Approximate bar-level vol from the close change ratio
+    const prevBar = barWindow[sym]?.[barWindow[sym].length - 2];
+    const vol = prevBar ? Math.max(0.005, Math.abs(bar.c - prevBar.c) / prevBar.c) : (sigState[sym]?.vol || 0.02);
+    const prev = sigState[sym] || {};
+    const atr  = calcATR(barWindow[sym]) || null;
+    const sig  = computeSignalBT({ ...prev, vol }, price, atr);
+    sigState[sym] = { ...sig, price, vol };
+
+    if (sig.signal === 'BUY' && sig.signalStrength >= minStrength && sig.stopLoss && sig.takeProfit) {
+      const available = Math.min(posAmt, cash * 0.20);
+      const shares    = Math.max(1, Math.floor(available / price));
+      const cost      = f2bt(shares * price);
+      if (cost > cash * 0.98) continue; // insufficient cash
+
+      cash -= cost;
+      positions.push({
+        symbol:     sym,
+        entryPrice: price,
+        shares,
+        stopLoss:   sig.stopLoss,
+        takeProfit: sig.takeProfit,
+        riskReward: sig.riskReward,
+        entryType:  sig.entryType,
+        enteredAt:  ts
+      });
+    }
+  }
+
+  // -- Force-close any positions still open at end of data --------------------
+  for (const pos of positions) {
+    const w      = barWindow[pos.symbol];
+    const lb     = w?.[w.length - 1];
+    const exitPx = lb?.c ?? pos.entryPrice;
+    const exitTs = lb  ? new Date(lb.t).getTime() : Date.now();
+    trades.push({
+      symbol:   pos.symbol,
+      type:     'TIME_EXIT',
+      entry:    pos.entryPrice,
+      exit:     exitPx,
+      profit:   f2bt((exitPx - pos.entryPrice) * pos.shares),
+      rr:       pos.riskReward,
+      held:     Math.round((exitTs - pos.enteredAt) / 1000) + 's',
+      strategy: pos.entryType,
+      ts:       exitTs,
+      t:        new Date(exitTs).toLocaleTimeString('en-US', { hour12: false })
+    });
+  }
+
+  // Return newest-first (matches live portfolio.history format)
+  return {
+    trades:  trades.reverse(),
+    summary: {
+      symbols:        symbols.length,
+      days,
+      timeframe,
+      initialEquity,
+      totalBars:      timeline.length,
+      tradesGenerated: trades.length,
+      symbolsTraded:  [...new Set(trades.map(t => t.symbol))].length,
+      finalCash:      f2bt(cash),
+      openAtEnd:      positions.length
+    }
+  };
+}
+
+// GET /api/backtest?days=30&timeframe=5Min&posAmt=2000&maxPositions=8&minStrength=45
+// Runs the full backtest and returns trade history + summary.
+// Expect 10-30s response time depending on number of symbols and days.
+app.get('/api/backtest', async (req, res) => {
+  if (!API_KEY) return res.status(401).json({ error: 'No API keys configured' });
+  const {
+    days          = '30',
+    timeframe     = '5Min',
+    initialEquity = '100000',
+    posAmt        = '2000',
+    maxPositions  = '8',
+    minStrength   = '45',
+    cooldownBars  = '3',
+    symbols       = SYMBOLS.join(',')
+  } = req.query;
+
+  const symList = symbols.split(',').map(s => s.trim().toUpperCase()).filter(s => SYMBOLS.includes(s));
+  if (!symList.length) return res.status(400).json({ error: 'No valid symbols' });
+
+  const t0 = Date.now();
+  console.log(`[BT] Request: ${symList.length} symbols, ${days}d, ${timeframe}, minStr=${minStrength}`);
+  try {
+    const result = await runBacktest({
+      symbols:       symList,
+      days:          parseInt(days),
+      timeframe,
+      initialEquity: parseFloat(initialEquity),
+      posAmt:        parseFloat(posAmt),
+      maxPositions:  parseInt(maxPositions),
+      minStrength:   parseFloat(minStrength),
+      cooldownBars:  parseInt(cooldownBars)
+    });
+    const ms = Date.now() - t0;
+    console.log(`[BT] Complete: ${result.trades.length} trades in ${ms}ms`);
+    res.json({ ...result, timing_ms: ms });
+  } catch(e) {
+    console.log('[BT] Fatal error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', ws => {
