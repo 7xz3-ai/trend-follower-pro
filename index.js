@@ -353,20 +353,25 @@ app.post('/api/trade', async (req, res) => {
   }
 });
 
-// Close a position by liquidating it and cancelling its bracket legs in one atomic call.
-// Without cancel_orders=true Alpaca returns 422 when SL/TP child orders are still open.
-app.delete('/api/position/:symbol', async (req, res) => {
+// POST /api/close-position  { symbol: "NVDA" }
+// Using POST + body instead of DELETE /:symbol avoids any Express route-param
+// ambiguity and is safe for any future symbol format (crypto: BTC/USD, etc.).
+// cancel_orders=true cancels the open SL/TP bracket legs before liquidating.
+app.post('/api/close-position', async (req, res) => {
+  console.log('[CLOSE] Request received, body:', req.body);   // confirm route is hit
   if (!API_KEY) return res.status(401).json({ error: 'No Alpaca API keys configured' });
-  const { symbol } = req.params;
+
+  const { symbol } = req.body;
+  if (!symbol) return res.status(400).json({ error: 'symbol is required in request body' });
+
+  console.log('[CLOSE] Liquidating', symbol, 'with cancel_orders=true');
   try {
-    // cancel_orders=true tells Alpaca to cancel the pending SL/TP bracket legs
-    // and then submit the market-sell to liquidate the position, all in one request.
     const result = await broker('DELETE', `/v2/positions/${encodeURIComponent(symbol)}?cancel_orders=true`);
-    console.log('[CLOSE]', symbol, 'liquidated, order:', result.id || '(no id)');
-    res.json({ success: true, symbol, order_id: result.id || null });
+    console.log('[CLOSE]', symbol, 'OK - order id:', result.id || '(empty)', 'status:', result.status || '(empty)');
+    res.json({ success: true, symbol, order_id: result.id || null, status: result.status || null });
   } catch(e) {
-    console.log('[CLOSE] Error for', symbol, ':', e.status, e.message);
-    res.status(e.status || 500).json({ error: e.message, symbol });
+    console.log('[CLOSE] Alpaca error for', symbol, '- HTTP', e.status, '-', e.message, '- body:', JSON.stringify(e.body || {}));
+    res.status(e.status || 500).json({ error: e.message, alpaca_code: e.alpacaCode, symbol });
   }
 });
 
