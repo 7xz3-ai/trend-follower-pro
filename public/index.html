@@ -363,22 +363,57 @@ function EquityCurve({history,currentEquity}){
   const ref=useRef(null);const chartRef=useRef(null);const seriesRef=useRef(null);
   useEffect(()=>{
     if(!ref.current)return;
-    const chart=LightweightCharts.createChart(ref.current,{layout:{background:{color:'#060608'},textColor:'#64748b'},grid:{vertLines:{color:'#0a0a10'},horzLines:{color:'#0a0a10'}},rightPriceScale:{borderColor:'#1e293b'},timeScale:{borderColor:'#1e293b'},width:ref.current.clientWidth,height:ref.current.clientHeight||120});
-    const series=chart.addAreaSeries({topColor:'#22c55e33',bottomColor:'#22c55e00',lineColor:'#22c55e',lineWidth:2});
+    const chart=LightweightCharts.createChart(ref.current,{
+      layout:{background:{color:'#060608'},textColor:'#64748b'},
+      grid:{vertLines:{color:'#0a0a10'},horzLines:{color:'#0a0a10'}},
+      rightPriceScale:{borderColor:'#1e293b'},
+      timeScale:{borderColor:'#1e293b',timeVisible:true},
+      width:ref.current.clientWidth,height:ref.current.clientHeight||130,
+    });
+    const series=chart.addAreaSeries({
+      topColor:'#22c55e33',bottomColor:'#22c55e00',
+      lineColor:'#22c55e',lineWidth:2,
+    });
     chartRef.current=chart;seriesRef.current=series;
-    const ro=new ResizeObserver(()=>{if(ref.current)chart.applyOptions({width:ref.current.clientWidth,height:ref.current.clientHeight||120});});
+    const ro=new ResizeObserver(()=>{if(ref.current)chart.applyOptions({width:ref.current.clientWidth,height:ref.current.clientHeight||130});});
     ro.observe(ref.current);return()=>{ro.disconnect();chart.remove();};
   },[]);
+
   useEffect(()=>{
     if(!seriesRef.current)return;
-    let eq=INITIAL_EQUITY;const pts=[{time:Math.floor(Date.now()/1000)-86400,value:INITIAL_EQUITY}];
-    [...history].reverse().forEach((t,i)=>{eq+=t.profit;pts.push({time:Math.floor(Date.now()/1000)-86400+(i+1)*300,value:f2(eq)});});
-    pts.push({time:Math.floor(Date.now()/1000),value:f2(currentEquity)});
-    const sorted=pts.sort((a,b)=>a.time-b.time);
-    const deduped=sorted.filter((p,i)=>i===0||p.time!==sorted[i-1].time);
+    // history is stored newest-first; reverse to get chronological order
+    const chrono=[...history].reverse();
+    // Starting point: INITIAL_EQUITY at a synthetic t-minus-1 second before first trade
+    const firstTs=chrono.length&&chrono[0].ts?chrono[0].ts-1000:Date.now()-86400000;
+    const pts=[{time:Math.floor(firstTs/1000),value:INITIAL_EQUITY}];
+    let eq=INITIAL_EQUITY;
+    chrono.forEach(t=>{
+      eq=f2(eq+t.profit);
+      // Use real ts if present; fall back to current time (handles old entries without ts)
+      const tSec=t.ts?Math.floor(t.ts/1000):Math.floor(Date.now()/1000);
+      pts.push({time:tSec,value:eq});
+    });
+    // Append live equity as the rightmost point at "now"
+    const nowSec=Math.floor(Date.now()/1000);
+    if(!pts.length||pts[pts.length-1].time<nowSec)
+      pts.push({time:nowSec,value:f2(currentEquity)});
+    // Deduplicate: lightweight-charts requires strictly ascending unique times
+    const seen=new Set();const deduped=[];
+    pts.sort((a,b)=>a.time-b.time).forEach(p=>{
+      if(!seen.has(p.time)){seen.add(p.time);deduped.push(p);}
+    });
+    // Colour the line red if we're below starting equity
+    const finalVal=deduped[deduped.length-1]?.value||INITIAL_EQUITY;
+    const isDown=finalVal<INITIAL_EQUITY;
+    seriesRef.current.applyOptions({
+      lineColor:isDown?'#ef4444':'#22c55e',
+      topColor:isDown?'#ef444433':'#22c55e33',
+      bottomColor:isDown?'#ef444400':'#22c55e00',
+    });
     try{seriesRef.current.setData(deduped);chartRef.current.timeScale().fitContent();}catch(e){}
   },[history,currentEquity]);
-  return <div ref={ref} style={{width:'100%',height:'100%',minHeight:100}}/>;
+
+  return <div ref={ref} style={{width:'100%',height:'100%',minHeight:130}}/>;
 }
 
 // -- App -----------------------------------------------------------------------
@@ -790,6 +825,7 @@ function App(){
           cash+=value;cooldowns.current[pos.symbol]=now;
           newHist.push({symbol:pos.symbol,type:exit.reason,entry:pos.entryPrice,exit:newPrice,
             profit,rr:pos.riskReward,held:Math.round((now-pos.enteredAt)/1000)+'s',
+            strategy:pos.entryType||null,ts:now,
             t:new Date().toLocaleTimeString('en-GB',{hour12:false})});
           addLog('['+exit.reason+'] '+pos.symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
         }else active.push({...pos,currentPrice:newPrice,hwm:exit.hwm,stopLoss:exit.newSL});
@@ -1067,6 +1103,8 @@ function App(){
               symbol,type:exitType,entry:entryPx,exit:filled_avg_price,profit,
               rr:pos?.riskReward||null,
               held:Math.round(heldMs/1000)+'s',
+              strategy:pos?.entryType||null,
+              ts:Date.now(),
               t:new Date().toLocaleTimeString('en-GB',{hour12:false})
             };
             addLog('['+exitType+'] '+symbol+' | '+pnlFmt(profit),profit>=0?'profit':'loss');
@@ -1126,21 +1164,83 @@ function App(){
   const th={padding:'8px 10px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',fontWeight:700,borderBottom:'1px solid #0d0d14',whiteSpace:'nowrap'};
   const td={padding:'10px 10px',borderBottom:'1px solid #0a0a12',color:'#e2e8f0',fontSize:13};
 
-  // -- Analytics ---------------------------------------------------------------
+  // -- Analytics (all calculations) -------------------------------------------
   const trades=closed;
-  const wns=trades.filter(t=>t.profit>0);const lss=trades.filter(t=>t.profit<=0);
-  const avgWin=wns.length?wns.reduce((a,t)=>a+t.profit,0)/wns.length:0;
-  const avgLoss=lss.length?lss.reduce((a,t)=>a+t.profit,0)/lss.length:0;
-  const bestTrade=trades.length?Math.max(...trades.map(t=>t.profit)):0;
+  const wns=trades.filter(t=>t.profit>0);
+  const lss=trades.filter(t=>t.profit<=0);
+
+  // Basic aggregates
+  const avgWin =wns.length?f2(wns.reduce((a,t)=>a+t.profit,0)/wns.length):0;
+  const avgLoss=lss.length?f2(lss.reduce((a,t)=>a+t.profit,0)/lss.length):0;
+  const bestTrade =trades.length?Math.max(...trades.map(t=>t.profit)):0;
   const worstTrade=trades.length?Math.min(...trades.map(t=>t.profit)):0;
-  const profitFactor=Math.abs(avgLoss)>0?Math.abs(avgWin/avgLoss):0;
-  const drawdown=pctOf(equity,INITIAL_EQUITY);
+
+  // 1. REAL PROFIT FACTOR = total gross profit / |total gross loss|
+  const grossWin =wns.reduce((a,t)=>a+t.profit,0);
+  const grossLoss=Math.abs(lss.reduce((a,t)=>a+t.profit,0));
+  const profitFactor=grossLoss>0?+(grossWin/grossLoss).toFixed(2):grossWin>0?Infinity:0;
+
+  // 2. TRUE MAX DRAWDOWN
+  // Walk equity chronologically (history is newest-first, so reverse).
+  // Track the running peak; deepest trough from any peak is the max drawdown.
+  const maxDrawdown=useMemo(()=>{
+    if(!trades.length)return 0;
+    const chrono=[...trades].reverse();
+    let eq=INITIAL_EQUITY,peak=INITIAL_EQUITY,worst=0;
+    chrono.forEach(t=>{
+      eq=f2(eq+t.profit);
+      if(eq>peak)peak=eq;
+      const dd=peak>0?(peak-eq)/peak*100:0;
+      if(dd>worst)worst=dd;
+    });
+    return +worst.toFixed(2);
+  },[trades]);
+
+  // 3. STRATEGY BREAKDOWN
+  // Group by t.strategy (set at trade entry; null for live trades without tag).
+  const STRATEGIES=['PULLBACK','BREAKOUT','BOUNCE','CROSS','SCALP'];
+  const stratStats=useMemo(()=>{
+    const map={};
+    trades.forEach(t=>{
+      const k=t.strategy||'OTHER';
+      if(!map[k])map[k]={n:0,wins:0,pnl:0};
+      map[k].n++;
+      if(t.profit>0)map[k].wins++;
+      map[k].pnl=f2(map[k].pnl+t.profit);
+    });
+    // Order: known strategies first, then OTHER
+    return [...STRATEGIES,'OTHER']
+      .filter(k=>map[k])
+      .map(k=>({strategy:k,...map[k],wr:map[k].n?Math.round(map[k].wins/map[k].n*100):0}));
+  },[trades]);
+
+  // 4. SHARPE RATIO APPROXIMATION
+  // Per-trade return % = (exit - entry) / entry.
+  // Annualised Sharpe = mean(r) / std(r) * sqrt(252).
+  // 252 is standard trading days; appropriate since each "period" is one trade.
+  const sharpe=useMemo(()=>{
+    if(trades.length<2)return null;
+    const rets=trades.map(t=>t.entry>0?(t.exit-t.entry)/t.entry:0);
+    const mean=rets.reduce((a,r)=>a+r,0)/rets.length;
+    const variance=rets.reduce((a,r)=>a+(r-mean)**2,0)/(rets.length-1);
+    const std=Math.sqrt(variance);
+    if(std===0)return null;
+    return +(mean/std*Math.sqrt(252)).toFixed(2);
+  },[trades]);
+
+  // Exit type counts (for the breakdown bar chart)
   const byReason={};trades.forEach(t=>{byReason[t.type]=(byReason[t.type]||0)+1;});
+
+  // Stat row helper
   const stat=(l,v,c='#e2e8f0')=>(
-    <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #0a0a10'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #0a0a10'}}>
       <span style={{fontSize:11,color:'#475569'}}>{l}</span>
       <span style={{fontSize:12,fontWeight:700,color:c}}>{v}</span>
     </div>
+  );
+  // Section header helper
+  const sectionHead=label=>(
+    <div style={{fontSize:8,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:10,marginBottom:4,paddingBottom:3,borderBottom:'1px solid #0f0f18'}}>{label}</div>
   );
 
   // -- Demo controls (inline above chart) -------------------------------------
@@ -1366,31 +1466,110 @@ function App(){
 
   const analyticsPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
-      <div style={{padding:'5px 10px',fontSize:8,fontWeight:700,color:'#22c55e',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>P&L Equity Curve</div>
-      <div style={{height:140,flexShrink:0}}><EquityCurve history={portfolio.history} currentEquity={equity}/></div>
-      <div style={{overflowY:'auto',flex:1,padding:'8px 10px',display:'flex',flexDirection:'column',gap:2}}>
-        <div style={{fontSize:8,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Performance Stats</div>
-        {stat('Total Trades',trades.length)}
-        {stat('Win Rate',(winRate??0)+'%',(winRate??0)>=50?'#22c55e':'#ef4444')}
-        {stat('Profit Factor',profitFactor.toFixed(2),profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444')}
-        {stat('Total P&L',pnlFmt(realPnl),realPnl>=0?'#22c55e':'#ef4444')}
-        {stat('Avg Win',pnlFmt(avgWin),'#22c55e')}
-        {stat('Avg Loss',pnlFmt(avgLoss),'#ef4444')}
-        {stat('Best Trade',pnlFmt(bestTrade),'#22c55e')}
-        {stat('Worst Trade',pnlFmt(worstTrade),'#ef4444')}
-        {stat('Return',((drawdown>=0?'+':'')+drawdown.toFixed(2)+'%'),drawdown>=0?'#22c55e':drawdown>-5?'#fbbf24':'#ef4444')}
-        {trades.length>0&&(
+
+      {/* Equity Curve */}
+      <div style={{padding:'5px 10px',fontSize:8,fontWeight:700,color:'#22c55e',textTransform:'uppercase',letterSpacing:'0.1em',borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
+        P&L Equity Curve
+        {trades.length>0&&<span style={{marginLeft:8,color:'#334155',fontWeight:400}}>({trades.length} closed trades)</span>}
+      </div>
+      <div style={{height:140,flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
+        <EquityCurve history={portfolio.history} currentEquity={equity}/>
+      </div>
+
+      <div style={{overflowY:'auto',flex:1,padding:'6px 12px'}}>
+
+        {trades.length===0?(
+          <div style={{textAlign:'center',padding:'30px 0',color:'#334155',fontSize:11}}>No closed trades yet.<br/>Run a demo or go live to populate stats.</div>
+        ):(
           <>
-            <div style={{fontSize:8,fontWeight:700,color:'#475569',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:8,marginBottom:2}}>Exit Breakdown</div>
-            {Object.entries(byReason).map(([k,v])=>(
-              <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'2px 0',borderBottom:'1px solid #0a0a10'}}>
-                <span style={{fontSize:7,color:'#334155'}}>{k.replace(/_/g,' ')}</span>
-                <div style={{display:'flex',alignItems:'center',gap:5}}>
-                  <div style={{width:36,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:Math.round((v/trades.length)*100)+'%',background:'#22d3ee',borderRadius:2}}/></div>
-                  <span style={{fontSize:7,color:'#64748b'}}>{v}</span>
+            {/* Core stats */}
+            {sectionHead('Performance')}
+            {stat('Total Trades', trades.length)}
+            {stat('Win Rate', (winRate??0)+'%  ('+wns.length+'W / '+lss.length+'L)', (winRate??0)>=50?'#22c55e':'#ef4444')}
+            {stat('Total P&L', pnlFmt(realPnl), realPnl>=0?'#22c55e':'#ef4444')}
+            {stat('Avg Win', pnlFmt(avgWin), '#22c55e')}
+            {stat('Avg Loss', pnlFmt(avgLoss), '#ef4444')}
+            {stat('Best Trade', pnlFmt(bestTrade), '#22c55e')}
+            {stat('Worst Trade', pnlFmt(worstTrade), '#ef4444')}
+
+            {/* Risk metrics */}
+            {sectionHead('Risk Metrics')}
+            {stat('Profit Factor',
+              profitFactor===Infinity?'Inf (no losses)':profitFactor.toFixed(2),
+              profitFactor===Infinity||profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444'
+            )}
+            {stat('Max Drawdown',
+              '-'+maxDrawdown.toFixed(2)+'%',
+              maxDrawdown<5?'#22c55e':maxDrawdown<15?'#fbbf24':'#ef4444'
+            )}
+            {stat('Sharpe Ratio (ann.)',
+              sharpe===null?'--':sharpe>=0?'+'+sharpe:String(sharpe),
+              sharpe===null?'#475569':sharpe>=1?'#22c55e':sharpe>=0?'#fbbf24':'#ef4444'
+            )}
+            {stat('Return vs Start',
+              (totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',
+              totalRet>=0?'#22c55e':totalRet>-5?'#fbbf24':'#ef4444'
+            )}
+
+            {/* Strategy breakdown */}
+            {stratStats.length>0&&(
+              <>
+                {sectionHead('Strategy Breakdown')}
+                <div style={{width:'100%',borderCollapse:'collapse',display:'table',marginBottom:4}}>
+                  <div style={{display:'table-header-group'}}>
+                    <div style={{display:'table-row'}}>
+                      {['Strategy','Trades','Win%','P&L'].map(h=>(
+                        <div key={h} style={{display:'table-cell',fontSize:8,color:'#334155',fontWeight:700,textTransform:'uppercase',paddingBottom:4,letterSpacing:'0.06em',borderBottom:'1px solid #0f0f18'}}>{h}</div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{display:'table-row-group'}}>
+                    {stratStats.map(s=>{
+                      const pnlC=s.pnl>=0?'#22c55e':'#ef4444';
+                      const wrC=s.wr>=55?'#22c55e':s.wr>=45?'#fbbf24':'#ef4444';
+                      const barW=Math.round(s.wr)+'%';
+                      return(
+                        <div key={s.strategy} style={{display:'table-row'}}>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:'#a78bfa',verticalAlign:'middle'}}>{s.strategy}</div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,color:'#94a3b8',verticalAlign:'middle'}}>{s.n}</div>
+                          <div style={{display:'table-cell',padding:'5px 4px',borderBottom:'1px solid #0a0a10',verticalAlign:'middle'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:4}}>
+                              <div style={{width:28,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+                                <div style={{height:'100%',width:barW,background:wrC,borderRadius:2}}/>
+                              </div>
+                              <span style={{fontSize:10,fontWeight:700,color:wrC}}>{s.wr}%</span>
+                            </div>
+                          </div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:pnlC,verticalAlign:'middle',textAlign:'right'}}>{pnlFmt(s.pnl)}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              </>
+            )}
+
+            {/* Exit type breakdown */}
+            {sectionHead('Exit Reasons')}
+            {Object.entries(byReason)
+              .sort((a,b)=>b[1]-a[1])
+              .map(([k,v])=>{
+                const isWin=k==='TAKE_PROFIT';
+                const isStop=k.includes('STOP')||k==='STOP_LOSS';
+                const barC=isWin?'#22c55e':isStop?'#ef4444':'#475569';
+                return(
+                  <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid #0a0a10'}}>
+                    <span style={{fontSize:10,color:isWin?'#22c55e':isStop?'#ef4444':'#475569',fontWeight:600}}>{k.replace(/_/g,' ')}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}>
+                      <div style={{width:44,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
+                        <div style={{height:'100%',width:Math.round((v/trades.length)*100)+'%',background:barC,borderRadius:2}}/>
+                      </div>
+                      <span style={{fontSize:10,color:'#64748b',minWidth:16,textAlign:'right'}}>{v}</span>
+                    </div>
+                  </div>
+                );
+              })
+            }
           </>
         )}
       </div>
