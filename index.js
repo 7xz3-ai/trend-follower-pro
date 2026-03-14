@@ -139,6 +139,8 @@ function broadcast(data) {
 const alpaca = { ws: null, ready: false, reconnMs: 1000, timer: null, lastTick: new Map() };
 function connectAlpaca() {
   if (alpaca.timer) { clearTimeout(alpaca.timer); alpaca.timer = null; }
+  // Tear down previous socket to prevent leaked connections on rapid reconnect
+  if (alpaca.ws) { try { alpaca.ws.removeAllListeners(); alpaca.ws.terminate(); } catch {} alpaca.ws = null; }
   if (!API_KEY) { console.log('[DATA] No API keys'); return; }
   const ws = new WebSocket('wss://stream.data.alpaca.markets/v2/iex');
   alpaca.ws = ws;
@@ -163,7 +165,9 @@ function connectAlpaca() {
   ws.on('close', () => {
     alpaca.ready = false;
     const d = alpaca.reconnMs;
+    // Cap at 60s so weekend disconnects don't build up unbounded backoff
     alpaca.timer = setTimeout(() => { alpaca.reconnMs = Math.min(d * 2, 60000); connectAlpaca(); }, d);
+    console.log('[DATA] Disconnected, reconnecting in', d, 'ms');
   });
   ws.on('error', err => console.log('[DATA] Error:', err.message));
 }
@@ -172,6 +176,7 @@ function connectAlpaca() {
 const tradeStream = { ws: null, ready: false, reconnMs: 1000, timer: null };
 function connectTradeUpdates() {
   if (tradeStream.timer) { clearTimeout(tradeStream.timer); tradeStream.timer = null; }
+  if (tradeStream.ws) { try { tradeStream.ws.removeAllListeners(); tradeStream.ws.terminate(); } catch {} tradeStream.ws = null; }
   if (!API_KEY) return;
   console.log('[TRADE] Connecting trade_updates stream...');
   const ws = new WebSocket('wss://paper-api.alpaca.markets/stream');
@@ -242,6 +247,7 @@ function connectTradeUpdates() {
     tradeStream.ready = false;
     const d = tradeStream.reconnMs;
     tradeStream.timer = setTimeout(() => { tradeStream.reconnMs = Math.min(d * 2, 30000); connectTradeUpdates(); }, d);
+    console.log('[TRADE] Disconnected, reconnecting in', d, 'ms');
   });
   ws.on('error', err => console.log('[TRADE] WS error:', err.message));
 }
@@ -250,14 +256,26 @@ const app    = express();
 const server = http.createServer(app);
 
 app.use(express.json());
+// CORS: In production, set FRONTEND_ORIGIN to your Vercel/Netlify URL for tighter security.
+// e.g. FRONTEND_ORIGIN=https://my-tfp.vercel.app
+const ALLOWED_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
 app.use((_, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
 app.options('*', (_, res) => res.sendStatus(204));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    // Prevent browsers from caching index.html -- ensures code changes deploy immediately.
+    // CSS/JS library CDN assets are versioned in the URL and unaffected.
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+    }
+  }
+}));
 
 app.get('/health', (_, res) => res.json({
   ok: true, paper: true,

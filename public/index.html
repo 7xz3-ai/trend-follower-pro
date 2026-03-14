@@ -27,6 +27,24 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+// -- Production deployment: set BACKEND_URL to your deployed backend origin.
+// When the frontend is served from the same Express server, leave as ''.
+// When deployed separately (e.g. Vercel frontend + Railway backend):
+//   const BACKEND_URL = 'https://your-app.up.railway.app';
+const BACKEND_URL = '';
+// Helper: prefix API calls with backend origin when deployed separately
+const api = (path) => BACKEND_URL + path;
+// Helper: build WebSocket URL pointing at the backend origin
+const wsUrl = () => {
+  if (BACKEND_URL) {
+    const u = new URL(BACKEND_URL);
+    const wsProt = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return wsProt + '//' + u.host + '/ws';
+  }
+  const wsProt = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return wsProt + '//' + window.location.host + '/ws';
+};
+
 const SEEDS=[
   {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
   {symbol:'TSLA',price:245,vol:0.031,baseRsi:46,tier:'MEGA'},
@@ -289,8 +307,8 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
     const days=tf==='1M'?30:tf==='1W'?7:30;
     const histTf=tf==='1W'?'1Hour':'1Day';
     const url=useHistory
-      ?'/api/history/'+symbol+'?timeframe='+histTf+'&days='+days
-      :'/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=390';
+      ?api('/api/history/'+symbol+'?timeframe='+histTf+'&days='+days)
+      :api('/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=390');
     fetch(url)
       .then(r=>r.json()).then(data=>{
         if(data.error)throw new Error(data.error);
@@ -457,7 +475,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch bars for selected symbol
   const fetchBars=useCallback(()=>{
     setLoading(true);setErr(null);
-    fetch('/api/history/'+sym+'?timeframe='+tf+'&days='+days)
+    fetch(api('/api/history/'+sym+'?timeframe='+tf+'&days='+days))
       .then(r=>r.json())
       .then(data=>{
         if(data.error)throw new Error(data.error);
@@ -476,7 +494,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch snapshot for all symbols (heatmap view)
   const fetchSnapshot=useCallback(()=>{
     setSnapshotLoading(true);
-    fetch('/api/history/multi/snapshot?days='+days)
+    fetch(api('/api/history/multi/snapshot?days='+days))
       .then(r=>r.json())
       .then(data=>{
         const snap={};
@@ -668,23 +686,30 @@ function HistoryPanel({onSelectSym}){
 // Normalize an Alpaca position (from /api/positions or trade_update) into our
 // internal shape so all rendering code stays unchanged.
 function normalizePosition(p) {
-  const entry = p.avg_entry_price || p.filled_avg_price || 0;
-  const rr = p.sl && p.tp && entry
-    ? +((p.tp - entry) / (entry - p.sl)).toFixed(2) : null;
+  const entry = Number(p.avg_entry_price || p.filled_avg_price) || 0;
+  const shares = Number(p.qty || p.filled_qty) || 0;
+  const sl = p.sl != null ? Number(p.sl) : null;
+  const tp = p.tp != null ? Number(p.tp) : null;
+  const denom = sl != null && entry > 0 ? entry - sl : 0;
+  const rr = sl != null && tp != null && denom > 0
+    ? +((tp - entry) / denom).toFixed(2) : null;
+  const ts = p.entered_at
+    ? (typeof p.entered_at === 'number' ? p.entered_at : new Date(p.entered_at).getTime())
+    : Date.now();
   return {
-    id:           p.id || p.order_id || p.asset_id,
+    id:           p.id || p.order_id || p.asset_id || Math.random().toString(36).slice(2),
     symbol:       p.symbol,
-    shares:       p.qty || p.filled_qty,
+    shares,
     entryPrice:   entry,
-    currentPrice: p.current_price || entry,
-    stopLoss:     p.sl   || null,
-    takeProfit:   p.tp   || null,
+    currentPrice: Number(p.current_price) || entry,
+    stopLoss:     sl,
+    takeProfit:   tp,
     hwm:          entry,
-    riskReward:   rr,
+    riskReward:   isFinite(rr) ? rr : null,
     entryType:    null,
     isAuto:       p.isAuto || false,
-    enteredAt:    p.entered_at ? new Date(p.entered_at).getTime() : Date.now(),
-    t:            new Date(p.entered_at||Date.now()).toLocaleTimeString('en-GB',{hour12:false})
+    enteredAt:    isFinite(ts) ? ts : Date.now(),
+    t:            new Date(isFinite(ts) ? ts : Date.now()).toLocaleTimeString('en-GB',{hour12:false})
   };
 }
 
@@ -771,10 +796,11 @@ function App(){
     if(dataModeRef.current==='demo')return;
     try{
       const [acctResp,posResp]=await Promise.all([
-        fetch('/api/account'),fetch('/api/positions')
+        fetch(api('/api/account')),fetch(api('/api/positions'))
       ]);
-      const acct=await acctResp.json();
-      const rawPos=await posResp.json();
+      let acct,rawPos;
+      try{acct=await acctResp.json();}catch{acct={error:'HTTP '+acctResp.status};}
+      try{rawPos=await posResp.json();}catch{rawPos=[];}
       if(acct.error){addLog('[ACCOUNT] '+acct.error,'warn');return;}
       const positions=Array.isArray(rawPos)?rawPos.map(normalizePosition):[];
       // Merge live prices into positions we already have in state
@@ -855,7 +881,7 @@ function App(){
     addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
     await Promise.allSettled(SEEDS.map(async seed=>{
       let realBars=[];
-      try{const r=await fetch('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+      try{const r=await fetch(api('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z'));
         const d=await r.json();if(d.bars&&d.bars.length>5)realBars=d.bars;}catch(e){}
       allData[seed.symbol]=generateSymbolDay(seed,realBars,marketBias);
     }));
@@ -893,6 +919,18 @@ function App(){
   // LIVE:  submits real bracket orders via POST /api/trade
   const autoEnterTrades=useCallback(async(minStr,isDemo)=>{
     const c=cfgRef.current,port=portfolioRef.current;
+    // -- GATE: market hours check (live only) --
+    // Alpaca rejects orders when market is closed, so don't even try.
+    if(!isDemo){
+      const mkt=getMarketStatus();
+      if(!mkt.isOpen){return;}
+    }
+    // -- GATE: buying power check (live only) --
+    // Prevents infinite 422 spam when cash is negative or exhausted.
+    if(!isDemo){
+      const bp=port.buying_power||port.cash||0;
+      if(bp<100){return;}
+    }
     const openSlots=c.maxPositions-port.positions.length;
     if(openSlots<=0)return;
     // Block symbols already held or with a pending order in flight
@@ -941,14 +979,16 @@ function App(){
       // Fetch real ATR(14) for all candidates in parallel.
       // Server caches results 60 s, so this won't flood the data API.
       const atrResults=await Promise.allSettled(
-        candidates.map(best=>fetch('/api/atr/'+best.symbol).then(r=>r.json()))
+        candidates.map(best=>fetch(api('/api/atr/'+best.symbol)).then(r=>r.json()))
       );
-      const bp=port.buying_power||port.cash;
+      const bp=port.buying_power||port.cash||0;
+      if(bp<100){addLog('[AUTO] Insufficient buying power ($'+Math.round(bp)+') — skipping','warn');return;}
       for(let i=0;i<candidates.length;i++){
         const best=candidates[i];
         const posAmt=manualAmtRef.current||2000;
-        const tradeVal=Math.min(posAmt,bp*0.20);
+        const tradeVal=Math.min(posAmt,Math.max(0,bp*0.20));
         const qtyInt=Math.max(1,Math.floor(tradeVal/best.price));
+        if(tradeVal<50||qtyInt<1){pendingOrders.current.delete(best.symbol);continue;}
         // Use real server-computed ATR; fall back to signal approximation if fetch failed
         const atrData=atrResults[i].status==='fulfilled'?atrResults[i].value:{};
         const atr=atrData.atr||best.atr||f2(best.price*(best.vol||0.02));
@@ -956,16 +996,24 @@ function App(){
         const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:2.0,CROSS:1.4,SCALP:1.0}[best.entryType]||1.5;
         const tpMult={PULLBACK:3.5,BREAKOUT:5.0,BOUNCE:3.0,CROSS:3.5,SCALP:2.0}[best.entryType]||3.0;
         const sl=f2(best.price-atr*slMult),tp=f2(best.price+atr*tpMult);
-        fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+        fetch(api('/api/trade'),{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({symbol:best.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:best.price,isAuto:true})
-        }).then(r=>r.json()).then(data=>{
-          if(data.error){
-            addLog('[AUTO REJECTED] '+best.symbol+': '+data.error,'warn');
-            pendingOrders.current.delete(best.symbol);
-          }else{
+        }).then(r=>{
+          if(!r.ok){
+            // Gracefully handle 422 / 4xx / 5xx without trying to parse non-JSON bodies
+            return r.text().then(txt=>{
+              let msg='HTTP '+r.status;
+              try{const j=JSON.parse(txt);msg=j.error||j.message||msg;}catch{}
+              addLog('[AUTO REJECTED] '+best.symbol+': '+msg,'warn');
+              pendingOrders.current.delete(best.symbol);
+              // Suppress re-entry for 30s on hard rejections (market closed, insufficient BP)
+              if(r.status===422||r.status===403)cooldowns.current[best.symbol]=Date.now()+30000;
+            });
+          }
+          return r.json().then(data=>{
             addLog('[AUTO.'+(best.entryType||'BUY')+'] '+best.symbol+' x'+qtyInt+
               ' @ ~'+usd(best.price)+' | SL:'+usd(sl)+' TP:'+usd(tp)+' ATR:'+usd(atr)+'('+atrSrc+')','trade');
-          }
+          });
         }).catch(e=>{
           addLog('[AUTO ERROR] '+best.symbol+': '+e.message,'warn');
           pendingOrders.current.delete(best.symbol);
@@ -999,19 +1047,23 @@ function App(){
 
   // -- Manual trade --- submits real bracket order to Alpaca ---------------------
   const manualTrade=useCallback(async(s)=>{
+    // Gate: market hours
+    const mkt=getMarketStatus();
+    if(!mkt.isOpen){addLog('[SKIP] Market is '+mkt.status+' — cannot submit orders','warn');return;}
     const lotSize=manualAmtRef.current||2000;
     const port=portfolioRef.current;
-    const bp=port.buying_power||port.cash;
-    if(bp<100){addLog('[SKIP] Insufficient buying power ('+usd(bp)+')','warn');return;}
-    const posSize=Math.min(lotSize,bp*0.95);
+    const bp=port.buying_power||port.cash||0;
+    if(bp<100){addLog('[SKIP] Insufficient buying power ('+usd(Math.max(0,bp))+')','warn');return;}
+    const posSize=Math.min(lotSize,Math.max(0,bp*0.95));
     const qtyInt=Math.max(1,Math.floor(posSize/s.price));
+    if(qtyInt<1){addLog('[SKIP] Position too small for '+s.symbol,'warn');return;}
     const actualCost=f2(qtyInt*s.price);
     // Fetch real ATR(14) from server before computing SL/TP.
     // Server caches per-symbol for 60s so this is nearly instant on repeat clicks.
     let atr=s.atr||f2(s.price*(s.vol||0.02));
     let atrSrc='est';
     try{
-      const atrResp=await fetch('/api/atr/'+s.symbol);
+      const atrResp=await fetch(api('/api/atr/'+s.symbol));
       if(atrResp.ok){const atrData=await atrResp.json();if(atrData.atr){atr=atrData.atr;atrSrc='real';}}
     }catch(e){/* fall back to signal approximation */}
     const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:1.8,CROSS:1.4,SCALP:1.0}[s.entryType]||1.5;
@@ -1020,11 +1072,13 @@ function App(){
     addLog('[SUBMITTING] '+s.symbol+' x'+qtyInt+' @ ~'+usd(s.price)+' = '+usd(actualCost)+
       ' | SL:'+usd(sl)+' TP:'+usd(tp)+' ATR:'+usd(atr)+'('+atrSrc+')','trade');
     try{
-      const resp=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+      const resp=await fetch(api('/api/trade'),{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({symbol:s.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:s.price,isAuto:false})});
-      const data=await resp.json();
+      // Safely parse response — handles 422 and non-JSON error bodies
+      let data;
+      try{data=await resp.json();}catch{data={error:'HTTP '+resp.status+' (non-JSON response)'};}
       if(!resp.ok||data.error){
-        addLog('[REJECTED] '+s.symbol+': '+(data.error||'Alpaca refused order'),'warn');
+        addLog('[REJECTED] '+s.symbol+': '+(data.error||'Alpaca refused order (HTTP '+resp.status+')'),'warn');
         return;
       }
       addLog('[ORDER SENT] '+s.symbol+' #'+(data.order_id||'').slice(0,8)+' --- waiting for fill...','trade');
@@ -1066,12 +1120,14 @@ function App(){
     // LIVE / SIM mode - hit real backend
     addLog('[CLOSING] '+symbol+' --- submitting market sell...','trade');
     try{
-      const resp=await fetch('/api/close-position',{
+      const resp=await fetch(api('/api/close-position'),{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({symbol})
       });
-      const data=await resp.json();
+      // Safely parse — handles 422 / non-JSON error bodies without throwing
+      let data;
+      try{data=await resp.json();}catch{data={error:'HTTP '+resp.status+' (non-JSON response)'};}
       if(!resp.ok||data.error){
         addLog('[CLOSE ERROR] '+symbol+': '+(data.error||'HTTP '+resp.status),'warn');
         return;
@@ -1083,9 +1139,8 @@ function App(){
   // -- WebSocket: live price stream + trade update stream -----------------------
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting to server...');
-    const protocol=window.location.protocol==='https:'?'wss:':'ws:';
     let timer=setTimeout(()=>{addLog('[STREAM] Backend not reachable --- simulation mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
-    const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
+    const ws=new WebSocket(wsUrl());wsRef.current=ws;
 
     ws.onmessage=evt=>{
       let msg;try{msg=JSON.parse(evt.data);}catch{return;}
@@ -1108,7 +1163,8 @@ function App(){
       // -- Trade update from Alpaca -----------------------------------------
       // This fires when: bracket order fills (entry), stop-loss triggers,
       // take-profit triggers, manual close fills, or order gets rejected.
-      if(msg.type==='trade_update'){
+      // Entire handler is wrapped in try/catch so malformed messages can't crash the app.
+      if(msg.type==='trade_update'){try{
         const{event,symbol,side,filled_avg_price,filled_qty,status,reject_reason,
               sl,tp,isAuto,entry_price,entered_at,order_type}=msg;
 
@@ -1123,7 +1179,7 @@ function App(){
               avg_entry_price:filled_avg_price,current_price:livePrices.current[symbol]||filled_avg_price,
               sl,tp,isAuto,entered_at
             });
-            addLog('[FILL] '+symbol+' x'+filled_qty+' entered @ '+usd(filled_avg_price),'trade');
+            addLog('[FILL] '+symbol+' x'+filled_qty+' entered @ '+usd(filled_avg_price||0),'trade');
             return{...prev,positions:[...prev.positions,newPos]};
           });
           // Refresh balance after a small delay (Alpaca updates equity ~1s after fill)
@@ -1135,13 +1191,13 @@ function App(){
           pendingOrders.current.delete(symbol);
           setPortfolio(prev=>{
             const pos=prev.positions.find(p=>p.symbol===symbol);
-            const entryPx=entry_price||pos?.entryPrice||filled_avg_price;
-            const qty=filled_qty||(pos?.shares||0);
-            const profit=f2((filled_avg_price-entryPx)*qty);
-            const heldMs=pos?(Date.now()-pos.enteredAt):0;
+            const entryPx=Number(entry_price)||pos?.entryPrice||Number(filled_avg_price)||0;
+            const qty=Number(filled_qty)||(pos?.shares||0);
+            const profit=isFinite(filled_avg_price)&&isFinite(entryPx)?f2((filled_avg_price-entryPx)*qty):0;
+            const heldMs=pos&&isFinite(pos.enteredAt)?(Date.now()-pos.enteredAt):0;
             const exitType=deriveExitType(msg);
             const histEntry={
-              symbol,type:exitType,entry:entryPx,exit:filled_avg_price,profit,
+              symbol,type:exitType,entry:entryPx,exit:Number(filled_avg_price)||0,profit,
               rr:pos?.riskReward||null,
               held:Math.round(heldMs/1000)+'s',
               strategy:pos?.entryType||null,
@@ -1152,7 +1208,7 @@ function App(){
             return{
               ...prev,
               positions:prev.positions.filter(p=>p.symbol!==symbol),
-              history:[histEntry,...prev.history]
+              history:[histEntry,...(prev.history||[])]
             };
           });
           setTimeout(refreshAccount,1500);
@@ -1177,7 +1233,7 @@ function App(){
         if(event==='new'){
           addLog('[ORDER ACCEPTED] '+symbol+' bracket order queued','trade');
         }
-      }
+      }catch(err){console.error('[TFP] trade_update handler error:',err);addLog('[ERROR] Trade update: '+err.message,'warn');}}
     };
     ws.onerror=()=>{clearTimeout(timer);addLog('[ERR] Connection failed --- simulation mode','warn');setDataMode('sim');};
     ws.onclose=()=>clearTimeout(timer);
@@ -1186,10 +1242,11 @@ function App(){
   // -- Derived values ----------------------------------------------------------
   const isDemoMode=demoState==='running'||demoState==='paused'||demoState==='loading';
   // In live mode: equity from Alpaca.  In demo/sim: compute locally.
-  const posVal=portfolio.positions.reduce((a,p)=>a+p.shares*(p.currentPrice||p.entryPrice),0);
-  const equity=portfolio.equity||(portfolio.cash+posVal)||0;
-  const totalRet=pctOf(equity,INITIAL_EQUITY);
-  const openPnl=portfolio.positions.reduce((a,p)=>a+(p.currentPrice-p.entryPrice)*p.shares,0);
+  // Defensive: guard against NaN from positions with missing numeric fields.
+  const posVal=portfolio.positions.reduce((a,p)=>{const v=(Number(p.shares)||0)*(Number(p.currentPrice)||Number(p.entryPrice)||0);return a+(isFinite(v)?v:0);},0);
+  const equity=Number(portfolio.equity)||(Number(portfolio.cash)+posVal)||0;
+  const totalRet=pctOf(isFinite(equity)?equity:0,INITIAL_EQUITY);
+  const openPnl=portfolio.positions.reduce((a,p)=>{const v=(Number(p.currentPrice)-Number(p.entryPrice))*(Number(p.shares)||0);return a+(isFinite(v)?v:0);},0);
   // In backtest mode: use bt results for all analytics. In live/demo: use portfolio history.
   const closed = btMode==='backtest' ? btTrades : portfolio.history;
   const realPnl=closed.reduce((a,t)=>a+t.profit,0);
@@ -1496,7 +1553,7 @@ function App(){
                   <td style={{...td,color:'#ef4444',fontSize:9}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
                   <td style={{...td,color:'#22c55e',fontSize:9}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4,position:'relative',zIndex:50}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1513,7 +1570,7 @@ function App(){
     const qs=`days=${days}&timeframe=${timeframe}&posAmt=${posAmt}&maxPositions=${maxPositions}&minStrength=${minStrength}`;
     try{
       addLog('[BT] Starting backtest: '+days+'d '+timeframe+' minStr='+minStrength,'info');
-      const resp=await fetch('/api/backtest?'+qs);
+      const resp=await fetch(api('/api/backtest?'+qs));
       const data=await resp.json();
       if(!resp.ok||data.error){setBtError(data.error||'Backtest failed');addLog('[BT ERROR] '+data.error,'warn');return;}
       setBtTrades(data.trades||[]);setBtSummary(data.summary||null);setBtMode('backtest');
@@ -1798,7 +1855,7 @@ function App(){
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <span style={{fontSize:10,color:'#ef4444'}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
                     <span style={{fontSize:10,color:'#22c55e'}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
-                    <button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
+                    <button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3,position:'relative',zIndex:50}}>Close</button>
                   </div>
                 </div>
               );
@@ -1998,7 +2055,44 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+// -- ErrorBoundary: prevents white-screen-of-death on render errors -----------
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null, info: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error('[TFP] React render crash caught:', error, info);
+    this.setState({ info });
+  }
+  render() {
+    if (this.state.error) {
+      return React.createElement('div', {
+        style: { background: '#050507', color: '#ef4444', padding: 40, fontFamily: 'monospace',
+                 height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 16 }
+      },
+        React.createElement('div', { style: { fontSize: 24, fontWeight: 700 } }, 'TFP — UI Crash Caught'),
+        React.createElement('div', { style: { fontSize: 13, color: '#f59e0b', maxWidth: 600, wordBreak: 'break-all' } },
+          String(this.state.error)),
+        React.createElement('div', { style: { fontSize: 11, color: '#475569', maxWidth: 600, whiteSpace: 'pre-wrap' } },
+          this.state.info?.componentStack?.slice(0, 500) || ''),
+        React.createElement('button', {
+          onClick: () => { this.setState({ error: null, info: null }); },
+          style: { padding: '12px 32px', fontSize: 14, fontWeight: 700, border: '2px solid #fbbf24',
+                   color: '#fbbf24', background: '#1c1000', cursor: 'pointer', borderRadius: 6, marginTop: 12 }
+        }, 'Reload UI'),
+        React.createElement('button', {
+          onClick: () => window.location.reload(),
+          style: { padding: '10px 24px', fontSize: 12, border: '1px solid #334155',
+                   color: '#94a3b8', background: 'transparent', cursor: 'pointer', borderRadius: 4 }
+        }, 'Hard Refresh')
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(ErrorBoundary, null, React.createElement(App))
+);
 </script>
 </body>
 </html>
