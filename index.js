@@ -495,69 +495,138 @@ const f2bt   = v => Math.round(v * 100) / 100;
 const f4bt   = v => Math.round(v * 10000) / 10000;
 const clmpBt = (v, mn, mx) => Math.min(mx, Math.max(mn, v));
 
+// ============================================================================
+// STRATEGY: Volatility Compression Breakout + Trend Momentum
+// ============================================================================
+// Edge: exploits the "volatility clustering" phenomenon.  Tight Bollinger Bands
+// (squeeze) predict imminent large moves.  We enter on the breakout side with
+// trend confirmation, using ATR for risk-calibrated SL/TP.
+//
+// Three entry modes:
+//   SQUEEZE_BREAK  – BB width < its 20-bar avg AND price closes above upper BB
+//   TREND_MOMENTUM – price above EMA21 > EMA50, RSI 45-65, positive momentum
+//   MEAN_REVERT    – price touches lower BB in uptrend, RSI < 38, bounce candle
+// ============================================================================
+
 function computeSignalBT(prev, newPrice, realAtr) {
   const vol  = prev.vol  ?? 0.02;
   const atr  = realAtr != null ? f2bt(realAtr) : f2bt(newPrice * vol);
 
-  const prevEma9   = prev.ema9   ?? newPrice;
-  const prevEma21  = prev.ema21  ?? newPrice;
-  const prevEma50  = prev.ema50  ?? newPrice;
-  const prevEma200 = prev.ema200 ?? newPrice;
-  const ema9   = f2bt(newPrice * 0.2   + prevEma9   * 0.8);
-  const ema21  = f2bt(newPrice * 0.09  + prevEma21  * 0.91);
-  const ema50  = f2bt(newPrice * 0.038 + prevEma50  * 0.962);
-  const ema200 = f2bt(newPrice * 0.01  + prevEma200 * 0.99);
-  const ema5   = f2bt(newPrice * 0.333 + ((prev.ema5 ?? newPrice) * 0.667));
+  // -- EMAs -------------------------------------------------------------------
+  const ema9   = f2bt(newPrice * 0.2   + (prev.ema9   ?? newPrice) * 0.8);
+  const ema21  = f2bt(newPrice * 0.09  + (prev.ema21  ?? newPrice) * 0.91);
+  const ema50  = f2bt(newPrice * 0.038 + (prev.ema50  ?? newPrice) * 0.962);
+  const ema200 = f2bt(newPrice * 0.01  + (prev.ema200 ?? newPrice) * 0.99);
 
+  // -- RSI (Wilder 14-period approximation) -----------------------------------
   const chg  = newPrice - (prev.price ?? newPrice);
   const gain = chg > 0 ? chg : 0;
   const loss = chg < 0 ? -chg : 0;
-  const prevAvgGain = prev.avgGain ?? (atr * 0.5);
-  const prevAvgLoss = prev.avgLoss ?? (atr * 0.5);
-  const avgGain = f4bt(prevAvgGain * 0.857 + gain * 0.143);
-  const avgLoss = f4bt(prevAvgLoss * 0.857 + loss * 0.143);
+  const avgGain = f4bt((prev.avgGain ?? (atr * 0.5)) * 0.857 + gain * 0.143);
+  const avgLoss = f4bt((prev.avgLoss ?? (atr * 0.5)) * 0.857 + loss * 0.143);
   const rs  = avgLoss === 0 ? 100 : avgGain / avgLoss;
   const rsi = f2bt(clmpBt(100 - (100 / (1 + rs)), 5, 95));
 
+  // -- Bollinger Bands (20-period SMA + 2 SD) ---------------------------------
+  // Maintain rolling window of last 20 closes in prev.bbWindow
+  const bbWindow = [...(prev.bbWindow || []), newPrice].slice(-20);
+  const bbLen    = bbWindow.length;
+  const bbSma    = bbWindow.reduce((a, v) => a + v, 0) / bbLen;
+  const bbStd    = Math.sqrt(bbWindow.reduce((a, v) => a + (v - bbSma) ** 2, 0) / bbLen);
+  const bbUpper  = f2bt(bbSma + 2 * bbStd);
+  const bbLower  = f2bt(bbSma - 2 * bbStd);
+  const bbWidth  = bbSma > 0 ? f4bt((bbUpper - bbLower) / bbSma) : 0.04;
+
+  // -- Keltner Channel (20-period EMA + 1.5 ATR) for squeeze detection --------
+  const kcUpper = f2bt(ema21 + 1.5 * atr);
+  const kcLower = f2bt(ema21 - 1.5 * atr);
+  const squeeze = bbUpper < kcUpper && bbLower > kcLower; // BB inside KC = squeeze
+
+  // -- BB width SMA (track avg width over 20 bars for compression detection) --
+  const bbwHistory = [...(prev.bbwHistory || []), bbWidth].slice(-20);
+  const bbwAvg     = bbwHistory.reduce((a, v) => a + v, 0) / bbwHistory.length;
+  const compressed = bbWidth < bbwAvg * 0.85;  // width 15%+ below avg
+
+  // -- Momentum ---------------------------------------------------------------
   const momentum = prev.price ? (newPrice - prev.price) / prev.price : 0;
 
-  const uptrend  = newPrice > ema21 && ema21 > ema50 && ema50 > ema200;
-  const weakUp   = newPrice > ema21 && ema21 > ema50;
-  const downtrend= newPrice < ema21 && ema21 < ema50;
+  // -- Trend classification ---------------------------------------------------
+  const uptrend   = newPrice > ema21 && ema21 > ema50;
+  const strongUp  = uptrend && ema50 > ema200;
+  const downtrend = newPrice < ema21 && ema21 < ema50;
 
-  const pullback = weakUp  && newPrice > ema9 && rsi >= 32 && rsi <= 56 && momentum > -0.08 && momentum < 0.20;
-  const breakout = (vol >= 0.020) && newPrice > ema5 && momentum > 0.04 && rsi >= 48 && rsi <= 72;
-  const bounce   = rsi >= 25 && rsi <= 44 && momentum > -0.05 && newPrice > ema9 * 0.998 && !downtrend;
-  const cross    = ema5 > ema9 && newPrice > ema9 && rsi >= 38 && rsi <= 68 && momentum >= 0;
-  const scalp    = newPrice > ema21 && momentum > 0.01 && rsi >= 35 && rsi <= 65 && !downtrend;
+  // -- Rate of change (5 bars) ------------------------------------------------
+  const roc5 = prev.price5ago ? (newPrice - prev.price5ago) / prev.price5ago : 0;
+  const priceHist = [...(prev.priceHist || []), newPrice].slice(-6);
+  const price5ago = priceHist.length >= 6 ? priceHist[0] : null;
 
-  const s1 = pullback ? (0.62 + clmpBt((56 - rsi) / 56, 0, 0.25) + clmpBt(vol / 0.05, 0, 0.13)) : 0;
-  const s2 = breakout ? (0.60 + clmpBt(momentum / 0.3, 0, 0.22) + clmpBt(vol / 0.06, 0, 0.13)) : 0;
-  const s3 = bounce   ? (0.60 + clmpBt((44 - rsi) / 44, 0, 0.25) + clmpBt(vol / 0.05, 0, 0.10)) : 0;
-  const s4 = cross    ? (0.56 + clmpBt(momentum / 0.25, 0, 0.22) + clmpBt(vol / 0.05, 0, 0.12)) : 0;
-  const s5 = scalp    ? (0.50 + clmpBt(momentum / 0.20, 0, 0.20) + clmpBt(vol / 0.06, 0, 0.10)) : 0;
+  // ==========================================================================
+  // ENTRY STRATEGIES
+  // ==========================================================================
 
-  const bestScore = Math.max(s1, s2, s3, s4, s5);
-  const entryType = bestScore === s1 ? 'PULLBACK' : bestScore === s2 ? 'BREAKOUT' :
-                    bestScore === s3 ? 'BOUNCE'   : bestScore === s4 ? 'CROSS' : 'SCALP';
+  // 1. SQUEEZE BREAKOUT: BB compressed + price breaks above upper BB
+  //    This is the highest-edge setup — volatility expansion after compression.
+  const sqzBreak = (squeeze || compressed) &&
+                   newPrice > bbUpper &&
+                   momentum > 0.001 &&
+                   rsi >= 45 && rsi <= 75 &&
+                   !downtrend;
+
+  // 2. TREND MOMENTUM: riding established trends with momentum confirmation
+  //    Enter when trend is established, RSI is mid-range (not exhausted),
+  //    and short-term momentum is positive.
+  const trendMom = strongUp &&
+                   newPrice > ema9 &&
+                   rsi >= 42 && rsi <= 64 &&
+                   momentum > 0.002 &&
+                   roc5 > 0.005 &&
+                   bbLen >= 10;
+
+  // 3. MEAN REVERSION: buy the dip in uptrends at BB lower band
+  //    Price near lower BB + uptrend intact + RSI washed = high-prob reversal.
+  const meanRev = uptrend &&
+                  newPrice <= bbLower * 1.005 &&
+                  rsi >= 22 && rsi <= 40 &&
+                  momentum > -0.02 &&
+                  newPrice > ema50;
+
+  // ==========================================================================
+  // SCORING — conservative scoring to reduce false signals
+  // ==========================================================================
+  const s1 = sqzBreak ? (0.65 + clmpBt(momentum / 0.02, 0, 0.20) + (squeeze ? 0.10 : 0.05)) : 0;
+  const s2 = trendMom ? (0.58 + clmpBt(roc5 / 0.03, 0, 0.22) + clmpBt((rsi - 42) / 30, 0, 0.10)) : 0;
+  const s3 = meanRev  ? (0.62 + clmpBt((40 - rsi) / 30, 0, 0.25) + (strongUp ? 0.08 : 0)) : 0;
+
+  const bestScore = Math.max(s1, s2, s3);
+  const entryType = bestScore === s1 ? 'SQUEEZE_BREAK' :
+                    bestScore === s2 ? 'TREND_MOMENTUM' : 'MEAN_REVERT';
   const strength  = clmpBt(bestScore * 100, 10, 98);
 
+  // -- Signal decision --------------------------------------------------------
   let signal = 'HOLD';
-  if (bestScore >= 0.50 && !downtrend) signal = 'BUY';
-  else if (rsi >= 75 || (downtrend && momentum < -0.10)) signal = 'SELL';
+  if (bestScore >= 0.58 && !downtrend) signal = 'BUY';
+  else if (rsi >= 78 || (downtrend && momentum < -0.008)) signal = 'SELL';
 
-  const slMult = { PULLBACK: 1.5, BREAKOUT: 1.2, BOUNCE: 2.0, CROSS: 1.4, SCALP: 1.0 }[entryType] || 1.5;
-  const tpMult = { PULLBACK: 3.5, BREAKOUT: 5.0, BOUNCE: 3.0, CROSS: 3.5, SCALP: 2.0 }[entryType] || 3.0;
+  // -- Risk management: ATR-calibrated SL/TP ----------------------------------
+  // Tighter stops on squeeze breakouts (high conviction), wider on mean reversion.
+  const slMult = { SQUEEZE_BREAK: 1.5, TREND_MOMENTUM: 1.8, MEAN_REVERT: 2.0 }[entryType] || 1.5;
+  const tpMult = { SQUEEZE_BREAK: 4.0, TREND_MOMENTUM: 3.5, MEAN_REVERT: 3.0 }[entryType] || 3.5;
   const stopLoss   = signal === 'BUY' ? f2bt(newPrice - atr * slMult) : null;
   const takeProfit = signal === 'BUY' ? f2bt(newPrice + atr * tpMult) : null;
   const riskReward = stopLoss && takeProfit
     ? +((takeProfit - newPrice) / (newPrice - stopLoss)).toFixed(2) : null;
 
-  return { atr, ema5, ema9, ema21, ema50, ema200, avgGain, avgLoss,
-    rsi, momentum, uptrend, weakUp, downtrend,
+  return {
+    atr, ema9, ema21, ema50, ema200, avgGain, avgLoss,
+    rsi, momentum, uptrend, strongUp, downtrend,
+    bbUpper, bbLower, bbWidth, bbSma: f2bt(bbSma), squeeze, compressed,
     signal, signalStrength: f2bt(strength),
     entryType: signal === 'BUY' ? entryType : null,
-    stopLoss, takeProfit, riskReward, price: newPrice, vol };
+    stopLoss, takeProfit, riskReward,
+    price: newPrice, vol,
+    // Carry forward for next iteration
+    bbWindow, bbwHistory, priceHist, price5ago
+  };
 }
 
 async function runBacktest({ symbols, days, timeframe, initialEquity, posAmt, maxPositions, minStrength, cooldownBars }) {

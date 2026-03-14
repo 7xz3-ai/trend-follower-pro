@@ -95,81 +95,93 @@ function getMarketStatus(){
   return{status,isOpen,isPre,isAH,etTime:et,next};
 }
 
-// -- Signal Engine v4 -- decisive, multi-strategy, high trade frequency ---------
+// -- Signal Engine v5 -- Volatility Compression Breakout + Trend Momentum -----
+// Mirrors backend computeSignalBT exactly.
+// Three entry modes:
+//   SQUEEZE_BREAK  – BB squeeze + price breaks above upper BB
+//   TREND_MOMENTUM – established uptrend + mid-range RSI + positive ROC
+//   MEAN_REVERT    – price at lower BB in uptrend, RSI washed out
 function computeSignal(prev,newPrice){
   const vol=prev.vol??0.02;
   const atr=f2(newPrice*vol);
 
-  // Persistent EMA state -- approximate from price history
-  const prevEma9=prev.ema9??newPrice,prevEma21=prev.ema21??newPrice;
-  const prevEma50=prev.ema50??newPrice,prevEma200=prev.ema200??newPrice;
-  const ema9=f2(newPrice*0.2+prevEma9*0.8);
-  const ema21=f2(newPrice*0.09+prevEma21*0.91);
-  const ema50=f2(newPrice*0.038+prevEma50*0.962);
-  const ema200=f2(newPrice*0.01+prevEma200*0.99);
-  const ema5=f2(newPrice*0.333+((prev.ema5??newPrice)*0.667));
+  // EMAs
+  const ema9=f2(newPrice*0.2+(prev.ema9??newPrice)*0.8);
+  const ema21=f2(newPrice*0.09+(prev.ema21??newPrice)*0.91);
+  const ema50=f2(newPrice*0.038+(prev.ema50??newPrice)*0.962);
+  const ema200=f2(newPrice*0.01+(prev.ema200??newPrice)*0.99);
 
-  // Persistent RSI -- Wilder smoothing approximation
-  const prevRsi=prev.rsi??50;
+  // RSI (Wilder 14)
   const chg=newPrice-(prev.price??newPrice);
   const gain=chg>0?chg:0,loss=chg<0?-chg:0;
-  const prevAvgGain=prev.avgGain??(atr*0.5),prevAvgLoss=prev.avgLoss??(atr*0.5);
-  const avgGain=f4(prevAvgGain*0.857+gain*0.143);
-  const avgLoss=f4(prevAvgLoss*0.857+loss*0.143);
+  const avgGain=f4((prev.avgGain??(atr*0.5))*0.857+gain*0.143);
+  const avgLoss=f4((prev.avgLoss??(atr*0.5))*0.857+loss*0.143);
   const rs=avgLoss===0?100:avgGain/avgLoss;
   const rsi=f2(clamp(100-(100/(1+rs)),5,95));
 
-  // Momentum -- rate of change over last tick
-  const momentum=+pctOf(newPrice,prev.price??newPrice).toFixed(4);
+  // Bollinger Bands (20-period)
+  const bbWindow=[...(prev.bbWindow||[]),newPrice].slice(-20);
+  const bbLen=bbWindow.length;
+  const bbSma=bbWindow.reduce((a,v)=>a+v,0)/bbLen;
+  const bbStd=Math.sqrt(bbWindow.reduce((a,v)=>a+(v-bbSma)**2,0)/bbLen);
+  const bbUpper=f2(bbSma+2*bbStd);
+  const bbLower=f2(bbSma-2*bbStd);
+  const bbWidth=bbSma>0?f4((bbUpper-bbLower)/bbSma):0.04;
 
-  // Trend classification
-  const uptrend=newPrice>ema21&&ema21>ema50&&ema50>ema200;
-  const weakUp=newPrice>ema21&&ema21>ema50;
+  // Keltner Channel (squeeze detection)
+  const kcUpper=f2(ema21+1.5*atr);
+  const kcLower=f2(ema21-1.5*atr);
+  const squeeze=bbUpper<kcUpper&&bbLower>kcLower;
+
+  // BB width compression detection
+  const bbwHistory=[...(prev.bbwHistory||[]),bbWidth].slice(-20);
+  const bbwAvg=bbwHistory.reduce((a,v)=>a+v,0)/bbwHistory.length;
+  const compressed=bbWidth<bbwAvg*0.85;
+
+  // Momentum
+  const momentum=prev.price?(newPrice-prev.price)/prev.price:0;
+
+  // ROC(5)
+  const priceHist=[...(prev.priceHist||[]),newPrice].slice(-6);
+  const price5ago=priceHist.length>=6?priceHist[0]:null;
+  const roc5=price5ago?(newPrice-price5ago)/price5ago:0;
+
+  // Trend
+  const uptrend=newPrice>ema21&&ema21>ema50;
+  const strongUp=uptrend&&ema50>ema200;
   const downtrend=newPrice<ema21&&ema21<ema50;
 
-  // -- 5 Entry Strategies ----------------------------------------------------
-  // PULLBACK: price touched ema9 then bouncing, RSI just reset
-  const pullback=weakUp&&newPrice>ema9&&rsi>=32&&rsi<=56&&momentum>-0.08&&momentum<0.20;
+  // -- Entry Strategies -------------------------------------------------------
+  const sqzBreak=(squeeze||compressed)&&newPrice>bbUpper&&momentum>0.001&&rsi>=45&&rsi<=75&&!downtrend;
+  const trendMom=strongUp&&newPrice>ema9&&rsi>=42&&rsi<=64&&momentum>0.002&&roc5>0.005&&bbLen>=10;
+  const meanRev=uptrend&&newPrice<=bbLower*1.005&&rsi>=22&&rsi<=40&&momentum>-0.02&&newPrice>ema50;
 
-  // BREAKOUT: strong candle above all EMAs, RSI not overbought
-  const breakout=(vol>=0.020)&&newPrice>ema5&&momentum>0.04&&rsi>=48&&rsi<=72;
+  // Scoring
+  const s1=sqzBreak?(0.65+clamp(momentum/0.02,0,0.20)+(squeeze?0.10:0.05)):0;
+  const s2=trendMom?(0.58+clamp(roc5/0.03,0,0.22)+clamp((rsi-42)/30,0,0.10)):0;
+  const s3=meanRev?(0.62+clamp((40-rsi)/30,0,0.25)+(strongUp?0.08:0)):0;
 
-  // BOUNCE: RSI washed out, price recovering from low
-  const bounce=rsi>=25&&rsi<=44&&momentum>-0.05&&newPrice>ema9*0.998&&!downtrend;
-
-  // CROSS: ema5 freshly above ema9 -- short-term momentum flip
-  const cross=ema5>ema9&&newPrice>ema9&&rsi>=38&&rsi<=68&&momentum>=0;
-
-  // SCALP: any conditions just price above ema21 with positive momentum
-  const scalp=newPrice>ema21&&momentum>0.01&&rsi>=35&&rsi<=65&&!downtrend;
-
-  // Score -- higher base scores so more trades fire
-  const s1=pullback?(0.62+clamp((56-rsi)/56,0,0.25)+clamp(vol/0.05,0,0.13)):0;
-  const s2=breakout?(0.60+clamp(momentum/0.3,0,0.22)+clamp(vol/0.06,0,0.13)):0;
-  const s3=bounce?(0.60+clamp((44-rsi)/44,0,0.25)+clamp(vol/0.05,0,0.10)):0;
-  const s4=cross?(0.56+clamp(momentum/0.25,0,0.22)+clamp(vol/0.05,0,0.12)):0;
-  const s5=scalp?(0.50+clamp(momentum/0.20,0,0.20)+clamp(vol/0.06,0,0.10)):0;
-
-  const bestScore=Math.max(s1,s2,s3,s4,s5);
-  const entryType=bestScore===s1?'PULLBACK':bestScore===s2?'BREAKOUT':bestScore===s3?'BOUNCE':bestScore===s4?'CROSS':'SCALP';
+  const bestScore=Math.max(s1,s2,s3);
+  const entryType=bestScore===s1?'SQUEEZE_BREAK':bestScore===s2?'TREND_MOMENTUM':'MEAN_REVERT';
   const strength=clamp(bestScore*100,10,98);
 
-  // Signal -- fire BUY on any qualifying strategy, not downtrend
   let signal='HOLD';
-  if(bestScore>=0.50&&!downtrend)signal='BUY';
-  else if(rsi>=75||(downtrend&&momentum<-0.10))signal='SELL';
+  if(bestScore>=0.58&&!downtrend)signal='BUY';
+  else if(rsi>=78||(downtrend&&momentum<-0.008))signal='SELL';
 
-  // SL/TP per strategy -- tighter on scalps, wider on breakouts
-  const slMult={PULLBACK:1.1,BREAKOUT:0.9,BOUNCE:1.3,CROSS:1.0,SCALP:0.7}[entryType]||1.0;
-  const tpMult={PULLBACK:2.2,BREAKOUT:3.0,BOUNCE:1.8,CROSS:2.0,SCALP:1.4}[entryType]||2.0;
+  // ATR-calibrated SL/TP
+  const slMult={SQUEEZE_BREAK:1.5,TREND_MOMENTUM:1.8,MEAN_REVERT:2.0}[entryType]||1.5;
+  const tpMult={SQUEEZE_BREAK:4.0,TREND_MOMENTUM:3.5,MEAN_REVERT:3.0}[entryType]||3.5;
   const stopLoss=signal==='BUY'?f2(newPrice-atr*slMult):null;
   const takeProfit=signal==='BUY'?f2(newPrice+atr*tpMult):null;
   const riskReward=stopLoss&&takeProfit?+((takeProfit-newPrice)/(newPrice-stopLoss)).toFixed(2):null;
 
-  return{atr,ema5,ema9,ema21,ema50,ema200,avgGain,avgLoss,
-    rsi,momentum,uptrend,weakUp,downtrend,
+  return{atr,ema9,ema21,ema50,ema200,avgGain,avgLoss,
+    rsi,momentum,uptrend,strongUp,downtrend,
+    bbUpper,bbLower,bbWidth,bbSma:f2(bbSma),squeeze,compressed,
     signal,signalStrength:f2(strength),entryType:signal==='BUY'?entryType:null,
-    stopLoss,takeProfit,riskReward};
+    stopLoss,takeProfit,riskReward,
+    bbWindow,bbwHistory,priceHist,price5ago};
 }
 
 function evaluateExit(pos,newPrice,sig,cfg,nowMs){
@@ -1297,7 +1309,7 @@ function App(){
 
   // 3. STRATEGY BREAKDOWN
   // Group by t.strategy (set at trade entry; null for live trades without tag).
-  const STRATEGIES=['PULLBACK','BREAKOUT','BOUNCE','CROSS','SCALP'];
+  const STRATEGIES=['SQUEEZE_BREAK','TREND_MOMENTUM','MEAN_REVERT'];
   const stratStats=useMemo(()=>{
     const map={};
     trades.forEach(t=>{
@@ -1579,12 +1591,20 @@ function App(){
     finally{setBtRunning(false);}
   },[btCfg,addLog]);
 
+  // -- Hero metric card helper --
+  const heroCard=(label,value,color,sub=null)=>(
+    <div style={{background:'#0a0a14',borderRadius:6,padding:'8px 10px',border:'1px solid #1e293b33',minWidth:0,flex:1}}>
+      <div style={{fontSize:8,color:'#475569',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:2,whiteSpace:'nowrap'}}>{label}</div>
+      <div style={{fontSize:16,fontWeight:800,color,lineHeight:1.2,whiteSpace:'nowrap'}}>{value}</div>
+      {sub&&<div style={{fontSize:9,color:'#475569',marginTop:1,whiteSpace:'nowrap'}}>{sub}</div>}
+    </div>
+  );
+
   const analyticsPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
 
       {/* Mode toggle + backtest controls */}
       <div style={{flexShrink:0,background:'#07070c',borderBottom:'1px solid #0f0f18'}}>
-        {/* Live / Backtest toggle */}
         <div style={{display:'flex',alignItems:'center',padding:'6px 10px',gap:6}}>
           {['live','backtest'].map(m=>(
             <button key={m} onClick={()=>setBtMode(m)}
@@ -1600,7 +1620,6 @@ function App(){
           {btError&&<span style={{fontSize:9,color:'#ef4444',marginLeft:4,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Error: {btError}</span>}
         </div>
 
-        {/* Backtest config form -- only shown when backtest tab is active */}
         {btMode==='backtest'&&(
           <div style={{padding:'0 10px 8px 10px',display:'flex',flexWrap:'wrap',gap:8,alignItems:'flex-end'}}>
             {[
@@ -1630,7 +1649,6 @@ function App(){
           </div>
         )}
 
-        {/* Backtest summary bar when results loaded */}
         {btMode==='backtest'&&btSummary&&(
           <div style={{padding:'4px 10px 6px',display:'flex',gap:14,flexWrap:'wrap',borderTop:'1px solid #0a0a10'}}>
             {[
@@ -1648,8 +1666,38 @@ function App(){
         )}
       </div>
 
-      {/* Equity Curve -- uses closed (live or backtest) */}
-      <div style={{padding:'4px 10px',fontSize:8,fontWeight:700,
+      {/* ================================================================== */}
+      {/* HERO DASHBOARD: key metrics visible instantly, no scrolling needed */}
+      {/* ================================================================== */}
+      <div style={{flexShrink:0,background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 10px'}}>
+        {trades.length===0?(
+          <div style={{textAlign:'center',padding:'8px 0',color:'#334155',fontSize:11}}>
+            {btMode==='backtest'?'Press RUN to backtest.':'No closed trades yet.'}
+          </div>
+        ):(
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6}}>
+            {heroCard('Net P&L',pnlFmt(realPnl),realPnl>=0?'#22c55e':'#ef4444',trades.length+' trades')}
+            {heroCard('Win Rate',(winRate??0)+'%',(winRate??0)>=50?'#22c55e':'#ef4444',wns.length+'W / '+lss.length+'L')}
+            {heroCard('Profit Factor',
+              profitFactor===Infinity?'INF':profitFactor.toFixed(2),
+              profitFactor===Infinity||profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444',
+              'gross W/L'
+            )}
+            {heroCard('Max Drawdown','-'+maxDrawdown.toFixed(2)+'%',
+              maxDrawdown<5?'#22c55e':maxDrawdown<15?'#fbbf24':'#ef4444',
+              'from peak'
+            )}
+            {heroCard('Sharpe',
+              sharpe===null?'--':sharpe>=0?'+'+sharpe.toFixed(1):sharpe.toFixed(1),
+              sharpe===null?'#475569':sharpe>=1?'#22c55e':sharpe>=0?'#fbbf24':'#ef4444',
+              'annualised'
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Equity Curve -- sits right below hero cards */}
+      <div style={{padding:'3px 10px',fontSize:8,fontWeight:700,
         color:btMode==='backtest'?'#a78bfa':'#22c55e',
         textTransform:'uppercase',letterSpacing:'0.1em',
         borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
@@ -1660,37 +1708,16 @@ function App(){
         <EquityCurve history={closed} currentEquity={btMode==='backtest'?(INITIAL_EQUITY+trades.reduce((a,t)=>a+t.profit,0)):equity}/>
       </div>
 
+      {/* Scrollable detail section below the fold */}
       <div style={{overflowY:'auto',flex:1,padding:'6px 12px'}}>
-        {trades.length===0?(
-          <div style={{textAlign:'center',padding:'24px 0',color:'#334155',fontSize:11,lineHeight:'1.6'}}>
-            {btMode==='backtest'
-              ? 'Configure parameters above and press RUN to backtest the last N days of data.'
-              : 'No closed trades yet.\nRun a demo or go live to populate stats.'}
-          </div>
-        ):(
+        {trades.length>0&&(
           <>
-            {sectionHead('Performance')}
-            {stat('Total Trades', trades.length)}
-            {stat('Win Rate', (winRate??0)+'%  ('+wns.length+'W / '+lss.length+'L)', (winRate??0)>=50?'#22c55e':'#ef4444')}
-            {stat('Total P&L', pnlFmt(realPnl), realPnl>=0?'#22c55e':'#ef4444')}
+            {/* Detailed stats */}
+            {sectionHead('Trade Details')}
             {stat('Avg Win', pnlFmt(avgWin), '#22c55e')}
             {stat('Avg Loss', pnlFmt(avgLoss), '#ef4444')}
             {stat('Best Trade', pnlFmt(bestTrade), '#22c55e')}
             {stat('Worst Trade', pnlFmt(worstTrade), '#ef4444')}
-
-            {sectionHead('Risk Metrics')}
-            {stat('Profit Factor',
-              profitFactor===Infinity?'Inf (no losses)':profitFactor.toFixed(2),
-              profitFactor===Infinity||profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444'
-            )}
-            {stat('Max Drawdown',
-              '-'+maxDrawdown.toFixed(2)+'%',
-              maxDrawdown<5?'#22c55e':maxDrawdown<15?'#fbbf24':'#ef4444'
-            )}
-            {stat('Sharpe Ratio (ann.)',
-              sharpe===null?'--':sharpe>=0?'+'+sharpe:String(sharpe),
-              sharpe===null?'#475569':sharpe>=1?'#22c55e':sharpe>=0?'#fbbf24':'#ef4444'
-            )}
             {stat('Return vs Start',
               (totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',
               totalRet>=0?'#22c55e':totalRet>-5?'#fbbf24':'#ef4444'
