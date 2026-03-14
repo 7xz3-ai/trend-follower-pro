@@ -27,6 +27,24 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+// -- Production deployment: set BACKEND_URL to your deployed backend origin.
+// When the frontend is served from the same Express server, leave as ''.
+// When deployed separately (e.g. Vercel frontend + Railway backend):
+//   const BACKEND_URL = 'https://your-app.up.railway.app';
+const BACKEND_URL = '';
+// Helper: prefix API calls with backend origin when deployed separately
+const api = (path) => BACKEND_URL + path;
+// Helper: build WebSocket URL pointing at the backend origin
+const wsUrl = () => {
+  if (BACKEND_URL) {
+    const u = new URL(BACKEND_URL);
+    const wsProt = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return wsProt + '//' + u.host + '/ws';
+  }
+  const wsProt = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return wsProt + '//' + window.location.host + '/ws';
+};
+
 const SEEDS=[
   {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
   {symbol:'TSLA',price:245,vol:0.031,baseRsi:46,tier:'MEGA'},
@@ -289,8 +307,8 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
     const days=tf==='1M'?30:tf==='1W'?7:30;
     const histTf=tf==='1W'?'1Hour':'1Day';
     const url=useHistory
-      ?'/api/history/'+symbol+'?timeframe='+histTf+'&days='+days
-      :'/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=390';
+      ?api('/api/history/'+symbol+'?timeframe='+histTf+'&days='+days)
+      :api('/api/bars/'+symbol+'?timeframe='+(TF_API[tf]||'5Min')+'&limit=390');
     fetch(url)
       .then(r=>r.json()).then(data=>{
         if(data.error)throw new Error(data.error);
@@ -457,7 +475,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch bars for selected symbol
   const fetchBars=useCallback(()=>{
     setLoading(true);setErr(null);
-    fetch('/api/history/'+sym+'?timeframe='+tf+'&days='+days)
+    fetch(api('/api/history/'+sym+'?timeframe='+tf+'&days='+days))
       .then(r=>r.json())
       .then(data=>{
         if(data.error)throw new Error(data.error);
@@ -476,7 +494,7 @@ function HistoryPanel({onSelectSym}){
   // Fetch snapshot for all symbols (heatmap view)
   const fetchSnapshot=useCallback(()=>{
     setSnapshotLoading(true);
-    fetch('/api/history/multi/snapshot?days='+days)
+    fetch(api('/api/history/multi/snapshot?days='+days))
       .then(r=>r.json())
       .then(data=>{
         const snap={};
@@ -771,7 +789,7 @@ function App(){
     if(dataModeRef.current==='demo')return;
     try{
       const [acctResp,posResp]=await Promise.all([
-        fetch('/api/account'),fetch('/api/positions')
+        fetch(api('/api/account')),fetch(api('/api/positions'))
       ]);
       const acct=await acctResp.json();
       const rawPos=await posResp.json();
@@ -855,7 +873,7 @@ function App(){
     addLog('[DEMO] Market bias: '+(marketBias>0?'BULL':'BEAR')+' ('+((marketBias*10000).toFixed(1))+' bps/min)','info');
     await Promise.allSettled(SEEDS.map(async seed=>{
       let realBars=[];
-      try{const r=await fetch('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z');
+      try{const r=await fetch(api('/api/bars/'+seed.symbol+'?timeframe=1Min&limit=390&start='+ys+'T13:30:00Z&end='+ys+'T20:00:00Z'));
         const d=await r.json();if(d.bars&&d.bars.length>5)realBars=d.bars;}catch(e){}
       allData[seed.symbol]=generateSymbolDay(seed,realBars,marketBias);
     }));
@@ -941,7 +959,7 @@ function App(){
       // Fetch real ATR(14) for all candidates in parallel.
       // Server caches results 60 s, so this won't flood the data API.
       const atrResults=await Promise.allSettled(
-        candidates.map(best=>fetch('/api/atr/'+best.symbol).then(r=>r.json()))
+        candidates.map(best=>fetch(api('/api/atr/'+best.symbol)).then(r=>r.json()))
       );
       const bp=port.buying_power||port.cash;
       for(let i=0;i<candidates.length;i++){
@@ -956,7 +974,7 @@ function App(){
         const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:2.0,CROSS:1.4,SCALP:1.0}[best.entryType]||1.5;
         const tpMult={PULLBACK:3.5,BREAKOUT:5.0,BOUNCE:3.0,CROSS:3.5,SCALP:2.0}[best.entryType]||3.0;
         const sl=f2(best.price-atr*slMult),tp=f2(best.price+atr*tpMult);
-        fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+        fetch(api('/api/trade'),{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({symbol:best.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:best.price,isAuto:true})
         }).then(r=>r.json()).then(data=>{
           if(data.error){
@@ -1011,7 +1029,7 @@ function App(){
     let atr=s.atr||f2(s.price*(s.vol||0.02));
     let atrSrc='est';
     try{
-      const atrResp=await fetch('/api/atr/'+s.symbol);
+      const atrResp=await fetch(api('/api/atr/'+s.symbol));
       if(atrResp.ok){const atrData=await atrResp.json();if(atrData.atr){atr=atrData.atr;atrSrc='real';}}
     }catch(e){/* fall back to signal approximation */}
     const slMult={PULLBACK:1.5,BREAKOUT:1.2,BOUNCE:1.8,CROSS:1.4,SCALP:1.0}[s.entryType]||1.5;
@@ -1020,7 +1038,7 @@ function App(){
     addLog('[SUBMITTING] '+s.symbol+' x'+qtyInt+' @ ~'+usd(s.price)+' = '+usd(actualCost)+
       ' | SL:'+usd(sl)+' TP:'+usd(tp)+' ATR:'+usd(atr)+'('+atrSrc+')','trade');
     try{
-      const resp=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},
+      const resp=await fetch(api('/api/trade'),{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({symbol:s.symbol,qty:qtyInt,stopLoss:sl,takeProfit:tp,price:s.price,isAuto:false})});
       const data=await resp.json();
       if(!resp.ok||data.error){
@@ -1066,7 +1084,7 @@ function App(){
     // LIVE / SIM mode - hit real backend
     addLog('[CLOSING] '+symbol+' --- submitting market sell...','trade');
     try{
-      const resp=await fetch('/api/close-position',{
+      const resp=await fetch(api('/api/close-position'),{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({symbol})
@@ -1083,9 +1101,8 @@ function App(){
   // -- WebSocket: live price stream + trade update stream -----------------------
   const connectLive=useCallback(()=>{
     setDataMode('connecting');addLog('[STREAM] Connecting to server...');
-    const protocol=window.location.protocol==='https:'?'wss:':'ws:';
     let timer=setTimeout(()=>{addLog('[STREAM] Backend not reachable --- simulation mode','warn');setDataMode('sim');wsRef.current?.close();},WS_TIMEOUT);
-    const ws=new WebSocket(protocol+'//'+window.location.host+'/ws');wsRef.current=ws;
+    const ws=new WebSocket(wsUrl());wsRef.current=ws;
 
     ws.onmessage=evt=>{
       let msg;try{msg=JSON.parse(evt.data);}catch{return;}
@@ -1496,7 +1513,7 @@ function App(){
                   <td style={{...td,color:'#ef4444',fontSize:9}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
                   <td style={{...td,color:'#22c55e',fontSize:9}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Close</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4,position:'relative',zIndex:50}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1513,7 +1530,7 @@ function App(){
     const qs=`days=${days}&timeframe=${timeframe}&posAmt=${posAmt}&maxPositions=${maxPositions}&minStrength=${minStrength}`;
     try{
       addLog('[BT] Starting backtest: '+days+'d '+timeframe+' minStr='+minStrength,'info');
-      const resp=await fetch('/api/backtest?'+qs);
+      const resp=await fetch(api('/api/backtest?'+qs));
       const data=await resp.json();
       if(!resp.ok||data.error){setBtError(data.error||'Backtest failed');addLog('[BT ERROR] '+data.error,'warn');return;}
       setBtTrades(data.trades||[]);setBtSummary(data.summary||null);setBtMode('backtest');
@@ -1798,7 +1815,7 @@ function App(){
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <span style={{fontSize:10,color:'#ef4444'}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
                     <span style={{fontSize:10,color:'#22c55e'}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
-                    <button onClick={e=>{e.stopPropagation();console.log('[DEBUG] Close clicked for',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3}}>Close</button>
+                    <button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3,position:'relative',zIndex:50}}>Close</button>
                   </div>
                 </div>
               );
