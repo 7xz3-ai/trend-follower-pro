@@ -11,12 +11,13 @@
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{background:#050507;font-family:'IBM Plex Mono',monospace;color:#e2e8f0;overflow-x:hidden;}
+    body{background:#0f172a;font-family:'Inter',system-ui,-apple-system,sans-serif;color:#e2e8f0;overflow-x:hidden;}
     ::-webkit-scrollbar{width:3px;height:3px;}
-    ::-webkit-scrollbar-track{background:#0a0a0f;}
-    ::-webkit-scrollbar-thumb{background:#1e293b;border-radius:2px;}
-    input[type=range]{accent-color:#22d3ee;cursor:pointer;width:100%;}
+    ::-webkit-scrollbar-track{background:#1e293b;}
+    ::-webkit-scrollbar-thumb{background:#475569;border-radius:2px;}
+    input[type=range]{accent-color:#06b6d4;cursor:pointer;width:100%;}
     input[type=range]:disabled{opacity:0.3;cursor:not-allowed;}
     .pulse{animation:pulse 2s infinite;}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
@@ -49,7 +50,7 @@ const SEEDS=[
   {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
   {symbol:'META',price:615,vol:0.017,baseRsi:54,tier:'MEGA'},
 ];
-const TIER_COLOR={MEGA:'#22d3ee',SEMI:'#a78bfa',ETF:'#38bdf8',GRWTH:'#fbbf24'};
+const TIER_COLOR={MEGA:'#06b6d4',SEMI:'#8b5cf6',ETF:'#38bdf8',GRWTH:'#f59e0b'};
 const TIMEFRAMES=['1min','5min','15min','30min','1hr','4hr','1day','1W','1M'];
 const TF_API={'1min':'1Min','5min':'5Min','15min':'15Min','30min':'30Min','1hr':'1Hour','4hr':'4Hour','1day':'1Day','1W':'1Day','1M':'1Day'};
 const INITIAL_EQUITY=100000;
@@ -266,8 +267,8 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
   useEffect(()=>{
     if(!containerRef.current)return;
     const chart=LightweightCharts.createChart(containerRef.current,{
-      layout:{background:{color:'#060608'},textColor:'#94a3b8'},
-      grid:{vertLines:{color:'#0d0d12'},horzLines:{color:'#0d0d12'}},
+      layout:{background:{color:'#111827'},textColor:'#94a3b8'},
+      grid:{vertLines:{color:'#1e293b'},horzLines:{color:'#1e293b'}},
       crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
       rightPriceScale:{borderColor:'#1e293b'},
       timeScale:{borderColor:'#1e293b',timeVisible:true,secondsVisible:true},
@@ -275,7 +276,7 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
       width:containerRef.current.clientWidth,
       height:containerRef.current.clientHeight||300,
     });
-    const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#16a34a',wickDownColor:'#dc2626'});
+    const series=chart.addCandlestickSeries({upColor:'#10b981',downColor:'#f43f5e',borderUpColor:'#10b981',borderDownColor:'#f43f5e',wickUpColor:'#059669',wickDownColor:'#e11d48'});
     chartRef.current=chart;seriesRef.current=series;
     const ro=new ResizeObserver(()=>{if(containerRef.current)chart.applyOptions({width:containerRef.current.clientWidth,height:containerRef.current.clientHeight||300});});
     ro.observe(containerRef.current);
@@ -351,15 +352,15 @@ function StockChart({symbol,livePrice,demoData,isDemoMode}){
 
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
-      <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 8px',borderBottom:'1px solid #0f0f14',background:'#07070c',flexWrap:'wrap'}}>
-        <span style={{fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee',fontSize:12}}>{symbol}</span>
+      <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 8px',borderBottom:'1px solid #334155',background:'#1e293b',flexWrap:'wrap'}}>
+        <span style={{fontWeight:700,color:TIER_COLOR[seed?.tier]||'#06b6d4',fontSize:12}}>{symbol}</span>
         <span style={{color:'#94a3b8',fontSize:11}}>{livePrice?usd(livePrice):'--'}</span>
         {loading&&<span style={{fontSize:7,color:'#475569'}} className="pulse">LOADING</span>}
         {err&&<span style={{fontSize:7,color:'#f59e0b'}}>{err}</span>}
-        {isDemoMode&&<span style={{fontSize:7,color:'#a78bfa',border:'1px solid #7c3aed44',padding:'1px 4px'}}>DEMO</span>}
+        {isDemoMode&&<span style={{fontSize:7,color:'#8b5cf6',border:'1px solid #6d28d944',padding:'1px 4px'}}>DEMO</span>}
         <div style={{marginLeft:'auto',display:'flex',gap:2,flexWrap:'wrap'}}>
           {TIMEFRAMES.map(t=>(
-            <button key={t} onClick={()=>setTf(t)} style={{padding:'3px 7px',fontSize:10,fontWeight:700,border:'1px solid '+(tf===t?'#22d3ee66':'#1a1a2e'),color:tf===t?'#22d3ee':'#475569',background:tf===t?'#0a1f2e':'transparent',cursor:'pointer',borderRadius:3,whiteSpace:'nowrap'}}>
+            <button key={t} onClick={()=>setTf(t)} style={{padding:'3px 7px',fontSize:10,fontWeight:700,border:'1px solid '+(tf===t?'#06b6d466':'#334155'),color:tf===t?'#06b6d4':'#475569',background:tf===t?'#0e749022':'transparent',cursor:'pointer',borderRadius:6,whiteSpace:'nowrap'}}>
               {t.toUpperCase()}
             </button>
           ))}
@@ -376,15 +377,15 @@ function EquityCurve({history,currentEquity}){
   useEffect(()=>{
     if(!ref.current)return;
     const chart=LightweightCharts.createChart(ref.current,{
-      layout:{background:{color:'#060608'},textColor:'#64748b'},
-      grid:{vertLines:{color:'#0a0a10'},horzLines:{color:'#0a0a10'}},
+      layout:{background:{color:'#111827'},textColor:'#64748b'},
+      grid:{vertLines:{color:'#1e293b'},horzLines:{color:'#1e293b'}},
       rightPriceScale:{borderColor:'#1e293b'},
       timeScale:{borderColor:'#1e293b',timeVisible:true},
       width:ref.current.clientWidth,height:ref.current.clientHeight||130,
     });
     const series=chart.addAreaSeries({
-      topColor:'#22c55e33',bottomColor:'#22c55e00',
-      lineColor:'#22c55e',lineWidth:2,
+      topColor:'#10b98133',bottomColor:'#10b98100',
+      lineColor:'#10b981',lineWidth:2,
     });
     chartRef.current=chart;seriesRef.current=series;
     const ro=new ResizeObserver(()=>{if(ref.current)chart.applyOptions({width:ref.current.clientWidth,height:ref.current.clientHeight||130});});
@@ -418,9 +419,9 @@ function EquityCurve({history,currentEquity}){
     const finalVal=deduped[deduped.length-1]?.value||INITIAL_EQUITY;
     const isDown=finalVal<INITIAL_EQUITY;
     seriesRef.current.applyOptions({
-      lineColor:isDown?'#ef4444':'#22c55e',
-      topColor:isDown?'#ef444433':'#22c55e33',
-      bottomColor:isDown?'#ef444400':'#22c55e00',
+      lineColor:isDown?'#f43f5e':'#10b981',
+      topColor:isDown?'#f43f5e33':'#10b98133',
+      bottomColor:isDown?'#f43f5e00':'#10b98100',
     });
     try{seriesRef.current.setData(deduped);chartRef.current.timeScale().fitContent();}catch(e){}
   },[history,currentEquity]);
@@ -450,8 +451,8 @@ function HistoryPanel({onSelectSym}){
   useEffect(()=>{
     if(!containerRef.current)return;
     const chart=LightweightCharts.createChart(containerRef.current,{
-      layout:{background:{color:'#060608'},textColor:'#94a3b8'},
-      grid:{vertLines:{color:'#0d0d12'},horzLines:{color:'#0d0d12'}},
+      layout:{background:{color:'#111827'},textColor:'#94a3b8'},
+      grid:{vertLines:{color:'#1e293b'},horzLines:{color:'#1e293b'}},
       crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
       rightPriceScale:{borderColor:'#1e293b'},
       timeScale:{borderColor:'#1e293b',timeVisible:true},
@@ -459,7 +460,7 @@ function HistoryPanel({onSelectSym}){
       width:containerRef.current.clientWidth,
       height:containerRef.current.clientHeight||320,
     });
-    const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#16a34a',wickDownColor:'#dc2626'});
+    const series=chart.addCandlestickSeries({upColor:'#10b981',downColor:'#f43f5e',borderUpColor:'#10b981',borderDownColor:'#f43f5e',wickUpColor:'#059669',wickDownColor:'#e11d48'});
     chartRef.current=chart;seriesRef.current=series;
     const ro=new ResizeObserver(()=>{if(containerRef.current)chart.applyOptions({width:containerRef.current.clientWidth,height:containerRef.current.clientHeight||320});});
     ro.observe(containerRef.current);
@@ -526,36 +527,36 @@ function HistoryPanel({onSelectSym}){
     return{totalReturn:+totalReturn.toFixed(2),high:+high.toFixed(2),low:+low.toFixed(2),upDays,downDays,volatility:+volatility.toFixed(2),maxDrawdown:+maxDrawdown.toFixed(2),bars:bars.length};
   },[bars]);
 
-  const heatColor=pct=>pct>=5?'#16a34a':pct>=2?'#22c55e':pct>=0?'#166534':pct>=-2?'#7f1d1d':pct>=-5?'#ef4444':'#dc2626';
-  const heatBg=pct=>pct>=5?'#14532d22':pct>=2?'#16a34a22':pct>=0?'#0a1f0a':pct>=-2?'#1c050544':pct>=-5?'#7f1d1d22':'#450a0a22';
+  const heatColor=pct=>pct>=5?'#059669':pct>=2?'#10b981':pct>=0?'#065f46':pct>=-2?'#7f1d1d':pct>=-5?'#f43f5e':'#e11d48';
+  const heatBg=pct=>pct>=5?'#064e3b22':pct>=2?'#05966922':pct>=0?'#064e3b22':pct>=-2?'#8813372244':pct>=-5?'#7f1d1d22':'#450a0a22';
 
-  const th2={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #0a0a10',whiteSpace:'nowrap'};
-  const td2={padding:'5px 8px',borderBottom:'1px solid #080810',color:'#e2e8f0',fontSize:10};
+  const th2={padding:'4px 8px',textAlign:'left',fontSize:7,textTransform:'uppercase',letterSpacing:'0.1em',color:'#334155',fontWeight:700,borderBottom:'1px solid #334155',whiteSpace:'nowrap'};
+  const td2={padding:'5px 8px',borderBottom:'1px solid #1e293b44',color:'#e2e8f0',fontSize:10};
 
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       {/* Controls bar */}
-      <div style={{display:'flex',gap:6,padding:'5px 8px',borderBottom:'1px solid #0f0f18',background:'#07070c',flexWrap:'wrap',alignItems:'center'}}>
+      <div style={{display:'flex',gap:6,padding:'5px 8px',borderBottom:'1px solid #334155',background:'#1e293b',flexWrap:'wrap',alignItems:'center'}}>
         <span style={{fontSize:8,fontWeight:700,color:'#38bdf8',textTransform:'uppercase',letterSpacing:'0.1em'}}>  History</span>
         {/* View toggle */}
         {[['chart',' '],['heatmap',' '],['table',' ']].map(([v,icon])=>(
-          <button key={v} onClick={()=>setView(v)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(view===v?'#38bdf844':'#0f0f18'),color:view===v?'#38bdf8':'#334155',background:'transparent',cursor:'pointer'}}>{icon} {v}</button>
+          <button key={v} onClick={()=>setView(v)} style={{padding:'2px 7px',fontSize:8,fontWeight:700,border:'1px solid '+(view===v?'#38bdf844':'#334155'),color:view===v?'#38bdf8':'#334155',background:'transparent',cursor:'pointer'}}>{icon} {v}</button>
         ))}
         <span style={{color:'#1e293b',fontSize:9}}>|</span>
         {/* Days range */}
         {[7,14,30].map(d=>(
-          <button key={d} onClick={()=>setDays(d)} style={{padding:'2px 6px',fontSize:8,fontWeight:700,border:'1px solid '+(days===d?'#38bdf844':'#0f0f18'),color:days===d?'#38bdf8':'#475569',background:'transparent',cursor:'pointer'}}>{d}D</button>
+          <button key={d} onClick={()=>setDays(d)} style={{padding:'2px 6px',fontSize:8,fontWeight:700,border:'1px solid '+(days===d?'#38bdf844':'#334155'),color:days===d?'#38bdf8':'#475569',background:'transparent',cursor:'pointer'}}>{d}D</button>
         ))}
         {view==='chart'&&(
           <>
             <span style={{color:'#1e293b',fontSize:9}}>|</span>
             {/* Symbol select */}
-            <select value={sym} onChange={e=>setSym(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 5px'}}>
+            <select value={sym} onChange={e=>setSym(e.target.value)} style={{background:'#1e293b',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 5px'}}>
               {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
             </select>
             {/* Timeframe */}
             {[['1Day','1D'],['1Hour','1H'],['30Min','30m'],['15Min','15m'],['5Min','5m']].map(([v,l])=>(
-              <button key={v} onClick={()=>setTf(v)} style={{padding:'2px 5px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===v?'#38bdf844':'#1a1a2e'),color:tf===v?'#38bdf8':'#334155',background:tf===v?'#071825':'transparent',cursor:'pointer'}}>{l}</button>
+              <button key={v} onClick={()=>setTf(v)} style={{padding:'2px 5px',fontSize:7,fontWeight:700,border:'1px solid '+(tf===v?'#38bdf844':'#334155'),color:tf===v?'#38bdf8':'#334155',background:tf===v?'#0e7490aa':'transparent',cursor:'pointer'}}>{l}</button>
             ))}
             <button onClick={fetchBars} style={{padding:'2px 8px',fontSize:8,fontWeight:700,border:'1px solid #1e293b',color:'#94a3b8',background:'transparent',cursor:'pointer'}}>{loading?' ':' '}</button>
           </>
@@ -569,31 +570,31 @@ function HistoryPanel({onSelectSym}){
       {view==='chart'&&(
         <div style={{display:'flex',flexDirection:'column',flex:1,minHeight:0}}>
           {/* Symbol strip */}
-          <div style={{display:'flex',gap:2,padding:'3px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#060608'}}>
+          <div style={{display:'flex',gap:2,padding:'3px 8px',flexWrap:'wrap',borderBottom:'1px solid #334155',background:'#111827'}}>
             {SEEDS.map(s=>(
-              <button key={s.symbol} onClick={()=>{setSym(s.symbol);if(onSelectSym)onSelectSym(s.symbol);}} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(sym===s.symbol?TIER_COLOR[s.tier]+'66':'#0f0f18'),color:sym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
+              <button key={s.symbol} onClick={()=>{setSym(s.symbol);if(onSelectSym)onSelectSym(s.symbol);}} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(sym===s.symbol?TIER_COLOR[s.tier]+'66':'#334155'),color:sym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
                 {s.symbol}
               </button>
             ))}
           </div>
-          {err&&<div style={{padding:'4px 10px',fontSize:8,color:'#f59e0b',background:'#1c100044'}}>{err} -- showing sim data</div>}
+          {err&&<div style={{padding:'4px 10px',fontSize:8,color:'#f59e0b',background:'#78350f2244'}}>{err} -- showing sim data</div>}
           <div ref={containerRef} style={{flex:1,minHeight:260}}/>
           {/* Stats bar */}
           {stats&&(
-            <div style={{display:'flex',gap:0,borderTop:'1px solid #0f0f18',background:'#07070c',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:0,borderTop:'1px solid #334155',background:'#1e293b',flexWrap:'wrap'}}>
               {[
-                {l:days+'D Return',v:(stats.totalReturn>=0?'+':'')+stats.totalReturn+'%',c:stats.totalReturn>=0?'#22c55e':'#ef4444'},
-                {l:days+'D High',v:'$'+stats.high,c:'#22c55e'},
-                {l:days+'D Low',v:'$'+stats.low,c:'#ef4444'},
-                {l:'Up Days',v:stats.upDays,c:'#22c55e'},
-                {l:'Down Days',v:stats.downDays,c:'#ef4444'},
-                {l:'Volatility',v:stats.volatility+'%',c:'#fbbf24'},
-                {l:'Max DD',v:stats.maxDrawdown+'%',c:'#ef4444'},
+                {l:days+'D Return',v:(stats.totalReturn>=0?'+':'')+stats.totalReturn+'%',c:stats.totalReturn>=0?'#10b981':'#f43f5e'},
+                {l:days+'D High',v:'$'+stats.high,c:'#10b981'},
+                {l:days+'D Low',v:'$'+stats.low,c:'#f43f5e'},
+                {l:'Up Days',v:stats.upDays,c:'#10b981'},
+                {l:'Down Days',v:stats.downDays,c:'#f43f5e'},
+                {l:'Volatility',v:stats.volatility+'%',c:'#f59e0b'},
+                {l:'Max DD',v:stats.maxDrawdown+'%',c:'#f43f5e'},
                 {l:'Bars',v:stats.bars,c:'#64748b'},
               ].map(({l,v,c},i)=>(
-                <div key={i} style={{padding:'5px 10px',borderRight:'1px solid #0f0f18',minWidth:80}}>
+                <div key={i} style={{padding:'5px 10px',borderRight:'1px solid #334155',minWidth:80}}>
                   <div style={{fontSize:7,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>{l}</div>
-                  <div style={{fontSize:10,fontWeight:700,color:c,marginTop:1}}>{v}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:c,marginTop:1,fontFamily:"'IBM Plex Mono',monospace"}}>{v}</div>
                 </div>
               ))}
             </div>
@@ -611,19 +612,19 @@ function HistoryPanel({onSelectSym}){
               {SEEDS.map(s=>{
                 const d=snapshot[s.symbol];
                 if(!d)return(
-                  <div key={s.symbol} style={{border:'1px solid #0f0f18',padding:8,background:'#07070c',opacity:0.4}}>
+                  <div key={s.symbol} style={{border:'1px solid #334155',padding:8,background:'#1e293b',opacity:0.4}}>
                     <div style={{fontSize:9,fontWeight:700,color:'#334155'}}>{s.symbol}</div>
                     <div style={{fontSize:8,color:'#1e293b',marginTop:2}}>No data</div>
                   </div>
                 );
                 return(
-                  <div key={s.symbol} onClick={()=>{setSym(s.symbol);setView('chart');if(onSelectSym)onSelectSym(s.symbol);}} style={{border:'1px solid '+(d.change>=0?'#16a34a22':'#991b1b22'),padding:8,background:heatBg(d.change),cursor:'pointer',transition:'all 0.2s'}}>
+                  <div key={s.symbol} onClick={()=>{setSym(s.symbol);setView('chart');if(onSelectSym)onSelectSym(s.symbol);}} style={{border:'1px solid '+(d.change>=0?'#05966922':'#be123c22'),padding:8,background:heatBg(d.change),cursor:'pointer',transition:'all 0.2s'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}}>
-                      <span style={{fontSize:10,fontWeight:700,color:TIER_COLOR[s.tier]||'#22d3ee'}}>{s.symbol}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:TIER_COLOR[s.tier]||'#06b6d4'}}>{s.symbol}</span>
                       <span style={{fontSize:9,fontWeight:700,color:heatColor(d.change)}}>{d.change>=0?'+':''}{d.change}%</span>
                     </div>
                     <div style={{fontSize:8,color:'#475569',marginBottom:1}}>{d.count} days . close ${d.close}</div>
-                    <div style={{height:3,background:'#0a0a10',borderRadius:2,overflow:'hidden',marginTop:4}}>
+                    <div style={{height:3,background:'#1e293b',borderRadius:2,overflow:'hidden',marginTop:4}}>
                       <div style={{height:'100%',width:Math.abs(d.change)/10*100+'%',maxWidth:'100%',background:heatColor(d.change),borderRadius:2}}/>
                     </div>
                     <div style={{display:'flex',justifyContent:'space-between',marginTop:4,fontSize:7,color:'#334155'}}>
@@ -644,7 +645,7 @@ function HistoryPanel({onSelectSym}){
             <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:150,color:'#334155',fontSize:9,textTransform:'uppercase'}} className="pulse">Loading...</div>
           ):(
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead style={{position:'sticky',top:0,background:'#07070c',zIndex:10}}>
+              <thead style={{position:'sticky',top:0,background:'#1e293b',zIndex:10}}>
                 <tr>{['Symbol','Close','Open',days+'D Ret%',days+'D High',days+'D Low','Volatility','Days',''].map(h=><th key={h} style={th2}>{h}</th>)}</tr>
               </thead>
               <tbody>
@@ -653,13 +654,13 @@ function HistoryPanel({onSelectSym}){
                   const change=d?.change??null;
                   return(
                     <tr key={s.symbol} style={{cursor:'pointer'}} onClick={()=>{setSym(s.symbol);setView('chart');if(onSelectSym)onSelectSym(s.symbol);}}>
-                      <td style={{...td2,fontWeight:700,color:TIER_COLOR[s.tier]||'#22d3ee'}}>{s.symbol}</td>
+                      <td style={{...td2,fontWeight:700,color:TIER_COLOR[s.tier]||'#06b6d4'}}>{s.symbol}</td>
                       <td style={{...td2,fontWeight:700}}>{d?'$'+d.close:'--'}</td>
                       <td style={{...td2,color:'#64748b'}}>{d?'$'+d.open:'--'}</td>
-                      <td style={{...td2,fontWeight:700,color:change===null?'#334155':change>=0?'#22c55e':'#ef4444'}}>{change===null?'--':(change>=0?'+':'')+change+'%'}</td>
-                      <td style={{...td2,color:'#22c55e'}}>{d?'$'+d.high:'--'}</td>
-                      <td style={{...td2,color:'#ef4444'}}>{d?'$'+d.low:'--'}</td>
-                      <td style={{...td2,color:'#fbbf24'}}>{d?'--':'--'}</td>
+                      <td style={{...td2,fontWeight:700,color:change===null?'#334155':change>=0?'#10b981':'#f43f5e'}}>{change===null?'--':(change>=0?'+':'')+change+'%'}</td>
+                      <td style={{...td2,color:'#10b981'}}>{d?'$'+d.high:'--'}</td>
+                      <td style={{...td2,color:'#f43f5e'}}>{d?'$'+d.low:'--'}</td>
+                      <td style={{...td2,color:'#f59e0b'}}>{d?'--':'--'}</td>
                       <td style={{...td2,color:'#475569'}}>{d?d.count:'--'}</td>
                       <td style={td2}><button onClick={e=>{e.stopPropagation();setSym(s.symbol);setView('chart');}} style={{border:'1px solid #1e293b',color:'#38bdf8',padding:'1px 5px',fontSize:7,background:'transparent',cursor:'pointer'}}>Chart</button></td>
                     </tr>
@@ -1248,14 +1249,14 @@ function App(){
   const winRate=closed.length?Math.round(wins/closed.length*100):null;
   const buys=stocks.filter(s=>s.signal==='BUY');
   const isActive=dataMode==='live'||dataMode==='sim';
-  const modeColor=dataMode==='live'?'#22c55e':dataMode==='sim'?'#f59e0b':dataMode==='demo'?'#a78bfa':dataMode==='connecting'?'#60a5fa':'#334155';
+  const modeColor=dataMode==='live'?'#10b981':dataMode==='sim'?'#f59e0b':dataMode==='demo'?'#8b5cf6':dataMode==='connecting'?'#60a5fa':'#334155';
   const riskAlerts=getRiskAlerts(portfolio,cfg,equity);
   const visSt=sigFilter==='ALL'?stocks:stocks.filter(s=>s.signal===sigFilter);
-  const mktCol=mktStatus.isOpen?'#22c55e':mktStatus.isPre||mktStatus.isAH?'#fbbf24':'#ef4444';
+  const mktCol=mktStatus.isOpen?'#10b981':mktStatus.isPre||mktStatus.isAH?'#f59e0b':'#f43f5e';
   const buyingPower=portfolio.buying_power||portfolio.cash;
 
-  const th={padding:'8px 10px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',fontWeight:700,borderBottom:'1px solid #0d0d14',whiteSpace:'nowrap'};
-  const td={padding:'10px 10px',borderBottom:'1px solid #0a0a12',color:'#e2e8f0',fontSize:13};
+  const th={padding:'8px 10px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',fontWeight:700,borderBottom:'1px solid #334155',whiteSpace:'nowrap'};
+  const td={padding:'10px 10px',borderBottom:'1px solid #1e293b44',color:'#e2e8f0',fontSize:13};
 
   // -- Analytics (all calculations) -------------------------------------------
   const trades=closed;
@@ -1342,52 +1343,52 @@ function App(){
 
   // Stat row helper
   const stat=(l,v,c='#e2e8f0')=>(
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #0a0a10'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #1e293b'}}>
       <span style={{fontSize:11,color:'#475569'}}>{l}</span>
-      <span style={{fontSize:12,fontWeight:700,color:c}}>{v}</span>
+      <span style={{fontSize:12,fontWeight:700,color:c,fontFamily:"'IBM Plex Mono',monospace"}}>{v}</span>
     </div>
   );
   // Section header helper
   const sectionHead=label=>(
-    <div style={{fontSize:8,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:10,marginBottom:4,paddingBottom:3,borderBottom:'1px solid #0f0f18'}}>{label}</div>
+    <div style={{fontSize:8,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.1em',marginTop:10,marginBottom:4,paddingBottom:3,borderBottom:'1px solid #334155'}}>{label}</div>
   );
 
   // -- Demo controls (inline above chart) -------------------------------------
   const demoControls=(
-    <div style={{padding:'8px 12px',borderTop:'1px solid #0f0f18',background:'#07070c',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-      <span style={{fontSize:7,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+    <div style={{padding:'8px 12px',borderTop:'1px solid #334155',background:'#1e293b',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <span style={{fontSize:7,fontWeight:700,color:'#8b5cf6',textTransform:'uppercase',letterSpacing:'0.08em'}}>
         {demoState==='running'?'DEMO LIVE':demoState==='loading'?'LOADING...':demoState==='done'?'DONE':'DEMO'}
       </span>
       {(demoState==='idle'||demoState==='done')&&(
         <>
-          <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+          <select value={demoMode} onChange={e=>setDemoMode(e.target.value)} style={{background:'#1e293b',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
             <option value="fast">Fast Fwd</option>
             <option value="replay">Real-time</option>
           </select>
-          <select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
+          <select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#1e293b',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:8,padding:'2px 4px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
           </select>
         </>
       )}
-      <label style={{display:'flex',alignItems:'center',gap:3,cursor:'pointer',fontSize:7,color:demoAutoOn?'#a78bfa':'#475569'}}>
-        <input type="checkbox" checked={demoAutoOn} onChange={e=>setDemoAutoOn(e.target.checked)} style={{width:10,height:10,accentColor:'#a78bfa'}}/>AUTO-TRADE
+      <label style={{display:'flex',alignItems:'center',gap:3,cursor:'pointer',fontSize:7,color:demoAutoOn?'#8b5cf6':'#475569'}}>
+        <input type="checkbox" checked={demoAutoOn} onChange={e=>setDemoAutoOn(e.target.checked)} style={{width:10,height:10,accentColor:'#8b5cf6'}}/>AUTO-TRADE
       </label>
       {(demoState==='idle'||demoState==='done')
-        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'8px 20px',fontSize:13,fontWeight:700,border:'2px solid #7c3aed',color:'#a78bfa',background:'#0d0018',cursor:'pointer',borderRadius:4}}>Simulate Day</button>
+        ?<button onClick={()=>startDemo(demoMode)} disabled={demoState==='loading'} style={{padding:'8px 20px',fontSize:13,fontWeight:700,border:'2px solid #6d28d9',color:'#8b5cf6',background:'#4c1d9522',cursor:'pointer',borderRadius:8}}>Simulate Day</button>
         :<>
-          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer',borderRadius:4}}>{demoState==='running'?'Pause':'Resume'}</button>}
-          <button onClick={stopDemo} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4}}>Stop</button>
-          {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#0a0a10',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
+          {demoState!=='loading'&&<button onClick={()=>setDemoState(s=>s==='running'?'paused':'running')} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #334155',color:'#94a3b8',background:'transparent',cursor:'pointer',borderRadius:8}}>{demoState==='running'?'Pause':'Resume'}</button>}
+          <button onClick={stopDemo} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'1px solid #be123c',color:'#f43f5e',background:'#88133722',cursor:'pointer',borderRadius:8}}>Stop</button>
+          {demoState==='running'&&<select value={demoSym} onChange={e=>{setDemoSym(e.target.value);setDemoData(demoAllDataRef.current[e.target.value]||[]);}} style={{background:'#1e293b',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:7,padding:'1px 3px'}}>
             {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
           </select>}
         </>
       }
       {demoState!=='idle'&&(
         <div style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:70}}>
-          <div style={{flex:1,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
-            <div style={{height:'100%',width:demoProgress+'%',background:demoState==='running'?'#a78bfa':'#334155',borderRadius:2,transition:'width 0.4s'}}/>
+          <div style={{flex:1,height:4,background:'#334155',borderRadius:2,overflow:'hidden'}}>
+            <div style={{height:'100%',width:demoProgress+'%',background:demoState==='running'?'#8b5cf6':'#334155',borderRadius:2,transition:'width 0.4s'}}/>
           </div>
-          <span style={{fontSize:7,color:'#7c3aed',fontWeight:700}}>{demoProgress}%</span>
+          <span style={{fontSize:7,color:'#6d28d9',fontWeight:700}}>{demoProgress}%</span>
         </div>
       )}
     </div>
@@ -1396,9 +1397,9 @@ function App(){
   // -- Panels ------------------------------------------------------------------
   const chartPanel=(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
-      <div style={{display:'flex',gap:2,padding:'4px 8px',flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
+      <div style={{display:'flex',gap:2,padding:'4px 8px',flexWrap:'wrap',borderBottom:'1px solid #334155',background:'#1e293b'}}>
         {SEEDS.map(s=>(
-          <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'66':'#0f0f18'),color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
+          <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)} style={{padding:'1px 4px',fontSize:7,fontWeight:700,border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'66':'#334155'),color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',background:'transparent',cursor:'pointer'}}>
             {s.symbol}
           </button>
         ))}
@@ -1411,8 +1412,8 @@ function App(){
   );
 
   const screenerPanel=(
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#060608'}}>
-      <div style={{padding:'10px 16px',borderBottom:'1px solid #0f0f18',background:'#07070c'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#111827'}}>
+      <div style={{padding:'10px 16px',borderBottom:'1px solid #334155',background:'#1e293b'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
           <div>
             <div style={{fontSize:14,fontWeight:700,color:'#f1f5f9',letterSpacing:'0.05em'}}>Signal Scanner</div>
@@ -1422,25 +1423,25 @@ function App(){
             {['ALL','BUY','SELL','HOLD'].map(f=>(
               <button key={f} onClick={()=>setSigFilter(f)}
                 style={{padding:'6px 16px',fontSize:12,fontWeight:700,
-                  border:'2px solid '+(sigFilter===f?(f==='BUY'?'#16a34a':f==='SELL'?'#991b1b':'#475569'):'#1e293b'),
-                  color:sigFilter===f?(f==='BUY'?'#22c55e':f==='SELL'?'#ef4444':'#e2e8f0'):'#475569',
-                  background:sigFilter===f?(f==='BUY'?'#0a1a0a':f==='SELL'?'#1a0a0a':'#111'):'transparent',
-                  borderRadius:4,cursor:'pointer'}}>
+                  border:'2px solid '+(sigFilter===f?(f==='BUY'?'#059669':f==='SELL'?'#be123c':'#475569'):'#1e293b'),
+                  color:sigFilter===f?(f==='BUY'?'#10b981':f==='SELL'?'#f43f5e':'#e2e8f0'):'#475569',
+                  background:sigFilter===f?(f==='BUY'?'#064e3b22':f==='SELL'?'#88133722':'#1e293b'):'transparent',
+                  borderRadius:8,cursor:'pointer'}}>
                 {f}{f==='BUY'?' ('+buys.length+')':''}
               </button>
             ))}
             {isActive&&<div style={{display:'flex',alignItems:'center',gap:5}}>
-              <div style={{width:8,height:8,borderRadius:'50%',background:'#22c55e'}} className="pulse"/>
-              <span style={{fontSize:11,color:'#22c55e',fontWeight:600}}>Scanning live</span>
+              <div style={{width:8,height:8,borderRadius:'50%',background:'#10b981'}} className="pulse"/>
+              <span style={{fontSize:11,color:'#10b981',fontWeight:600}}>Scanning live</span>
             </div>}
           </div>
         </div>
       </div>
       <div style={{overflowY:'auto',flex:1}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead style={{position:'sticky',top:0,background:'#08080f',zIndex:10}}>
+          <thead style={{position:'sticky',top:0,background:'#1e293b',zIndex:10}}>
             <tr>{['Symbol','Price','Change','RSI','Trend','Signal','Strength','Stop Loss / Take Profit','Action'].map(h=>(
-              <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',fontWeight:700,borderBottom:'2px solid #0d0d18',whiteSpace:'nowrap'}}>{h}</th>
+              <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',fontWeight:700,borderBottom:'2px solid #334155',whiteSpace:'nowrap'}}>{h}</th>
             ))}</tr>
           </thead>
           <tbody>
@@ -1452,41 +1453,41 @@ function App(){
               const sharePreview=Math.max(1,Math.floor(Math.min(manualAmt,buyingPower*0.95)/s.price));
               return(
                 <tr key={s.symbol}
-                  style={{cursor:'pointer',borderBottom:'1px solid #0a0a14',background:held?'#0d0d1e':isBuy?'#060e06':'transparent',transition:'background 0.2s'}}
+                  style={{cursor:'pointer',borderBottom:'1px solid #1e293b',background:held?'#4c1d9515':isBuy?'#064e3b15':'transparent',transition:'background 0.2s'}}
                   onClick={()=>{setSelectedSym(s.symbol);if(isMobile)setMobileTab('chart');else setTab('chart');}}>
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{width:4,height:32,borderRadius:2,background:TIER_COLOR[seed?.tier]||'#22d3ee',flexShrink:0}}/>
+                      <div style={{width:4,height:32,borderRadius:2,background:TIER_COLOR[seed?.tier]||'#06b6d4',flexShrink:0}}/>
                       <div>
-                        <div style={{color:TIER_COLOR[seed?.tier]||'#22d3ee',fontSize:15,fontWeight:800,letterSpacing:'0.04em'}}>{s.symbol}</div>
+                        <div style={{color:TIER_COLOR[seed?.tier]||'#06b6d4',fontSize:15,fontWeight:800,letterSpacing:'0.04em'}}>{s.symbol}</div>
                         <div style={{color:'#334155',fontSize:10,marginTop:1}}>{seed?.tier}</div>
                       </div>
                     </div>
                   </td>
-                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:15,color:'#f1f5f9',whiteSpace:'nowrap'}}>{usd(s.price)}</td>
-                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:13,color:chg>=0?'#22c55e':'#ef4444',whiteSpace:'nowrap'}}>{chg>=0?'+':''}{chg.toFixed(2)}%</td>
+                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:15,color:'#f1f5f9',whiteSpace:'nowrap',fontFamily:"'IBM Plex Mono',monospace"}}>{usd(s.price)}</td>
+                  <td style={{padding:'12px 12px',fontWeight:700,fontSize:13,color:chg>=0?'#10b981':'#f43f5e',whiteSpace:'nowrap',fontFamily:"'IBM Plex Mono',monospace"}}>{chg>=0?'+':''}{chg.toFixed(2)}%</td>
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:7}}>
-                      <div style={{width:44,height:7,background:'#111',borderRadius:3,overflow:'hidden',flexShrink:0}}>
-                        <div style={{height:'100%',width:rsi+'%',background:rsi<35?'#22c55e':rsi>68?'#ef4444':'#475569',borderRadius:3,transition:'width 0.4s'}}/>
+                      <div style={{width:44,height:7,background:'#1e293b',borderRadius:6,overflow:'hidden',flexShrink:0}}>
+                        <div style={{height:'100%',width:rsi+'%',background:rsi<35?'#10b981':rsi>68?'#f43f5e':'#475569',borderRadius:6,transition:'width 0.4s'}}/>
                       </div>
-                      <span style={{fontSize:13,color:rsi<35?'#22c55e':rsi>68?'#ef4444':'#94a3b8',fontWeight:600}}>{rsi.toFixed(0)}</span>
+                      <span style={{fontSize:13,color:rsi<35?'#10b981':rsi>68?'#f43f5e':'#94a3b8',fontWeight:600,fontFamily:"'IBM Plex Mono',monospace"}}>{rsi.toFixed(0)}</span>
                     </div>
                   </td>
                   <td style={{padding:'12px 12px'}}>
-                    <span style={{fontSize:12,fontWeight:700,padding:'4px 10px',borderRadius:3,
-                      background:s.uptrend?'#0a1f0a':s.downtrend?'#1c0707':'#111',
-                      color:s.uptrend?'#22c55e':s.downtrend?'#ef4444':'#475569',
-                      border:'1px solid '+(s.uptrend?'#16a34a44':s.downtrend?'#99182244':'#1e293b')}}>
+                    <span style={{fontSize:12,fontWeight:700,padding:'4px 10px',borderRadius:6,
+                      background:s.uptrend?'#064e3b22':s.downtrend?'#88133722':'#1e293b',
+                      color:s.uptrend?'#10b981':s.downtrend?'#f43f5e':'#475569',
+                      border:'1px solid '+(s.uptrend?'#05966944':s.downtrend?'#99182244':'#1e293b')}}>
                       {s.uptrend?'UP':s.downtrend?'DOWN':'FLAT'}
                     </span>
                   </td>
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                      <span style={{fontSize:13,fontWeight:800,padding:'4px 10px',borderRadius:3,display:'inline-block',
-                        background:isBuy?'#0a1f0a':isSell?'#1c0505':'#0f0f14',
-                        color:isBuy?'#22c55e':isSell?'#ef4444':'#475569',
-                        border:'1px solid '+(isBuy?'#16a34a66':isSell?'#99182266':'#1e293b')}}>
+                      <span style={{fontSize:13,fontWeight:800,padding:'4px 10px',borderRadius:6,display:'inline-block',
+                        background:isBuy?'#064e3b22':isSell?'#88133722':'#334155',
+                        color:isBuy?'#10b981':isSell?'#f43f5e':'#475569',
+                        border:'1px solid '+(isBuy?'#05966966':isSell?'#99182266':'#1e293b')}}>
                         {s.signal||'HOLD'}
                       </span>
                       {s.entryType&&<span style={{fontSize:10,color:'#64748b',paddingLeft:2}}>{s.entryType}</span>}
@@ -1494,17 +1495,17 @@ function App(){
                   </td>
                   <td style={{padding:'12px 12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:7}}>
-                      <div style={{width:56,height:7,background:'#0f0f14',borderRadius:3,overflow:'hidden',flexShrink:0}}>
-                        <div style={{height:'100%',width:(s.signalStrength??0)+'%',background:isBuy?'#22c55e':isSell?'#ef4444':'#334155',borderRadius:3,transition:'width 0.4s'}}/>
+                      <div style={{width:56,height:7,background:'#334155',borderRadius:6,overflow:'hidden',flexShrink:0}}>
+                        <div style={{height:'100%',width:(s.signalStrength??0)+'%',background:isBuy?'#10b981':isSell?'#f43f5e':'#334155',borderRadius:6,transition:'width 0.4s'}}/>
                       </div>
-                      <span style={{fontSize:13,fontWeight:700,color:'#94a3b8'}}>{(s.signalStrength??0).toFixed(0)}%</span>
+                      <span style={{fontSize:13,fontWeight:700,color:'#94a3b8',fontFamily:"'IBM Plex Mono',monospace"}}>{(s.signalStrength??0).toFixed(0)}%</span>
                     </div>
                   </td>
                   <td style={{padding:'12px 12px'}}>
                     {s.stopLoss&&s.takeProfit?(
                       <div style={{display:'flex',flexDirection:'column',gap:3,fontSize:12}}>
-                        <span style={{color:'#ef4444',fontWeight:600}}>SL {usd(s.stopLoss)}</span>
-                        <span style={{color:'#22c55e',fontWeight:600}}>TP {usd(s.takeProfit)}</span>
+                        <span style={{color:'#f43f5e',fontWeight:600,fontFamily:"'IBM Plex Mono',monospace"}}>SL {usd(s.stopLoss)}</span>
+                        <span style={{color:'#10b981',fontWeight:600,fontFamily:"'IBM Plex Mono',monospace"}}>TP {usd(s.takeProfit)}</span>
                       </div>
                     ):<span style={{color:'#1e293b',fontSize:12}}>--</span>}
                   </td>
@@ -1513,21 +1514,21 @@ function App(){
                       <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-start'}}>
                         <button onClick={()=>manualTrade(s)}
                           style={{padding:'10px 22px',fontSize:14,fontWeight:800,
-                            border:'2px solid #16a34a',color:'#22c55e',
-                            background:'#0a1f0a',borderRadius:5,cursor:'pointer',
-                            whiteSpace:'nowrap',letterSpacing:'0.03em',boxShadow:'0 0 10px #22c55e22'}}>
+                            border:'2px solid #059669',color:'#10b981',
+                            background:'#064e3b22',borderRadius:8,cursor:'pointer',
+                            whiteSpace:'nowrap',letterSpacing:'0.03em',boxShadow:'0 0 10px #10b98122'}}>
                           + Buy
                         </button>
-                        <span style={{fontSize:10,color:'#334155',fontFamily:'monospace'}}>
+                        <span style={{fontSize:10,color:'#334155',fontFamily:"'IBM Plex Mono',monospace"}}>
                           {sharePreview} shares = {usd(f2(sharePreview*s.price))}
                         </span>
                       </div>
                     )}
                     {pendingOrders.current.has(s.symbol)&&(
-                      <span style={{fontSize:11,fontWeight:700,color:'#fbbf24',padding:'6px 12px',border:'1px solid #fbbf2444',background:'#1c1000',borderRadius:4,display:'inline-block'}} className="pulse">PENDING</span>
+                      <span style={{fontSize:11,fontWeight:700,color:'#f59e0b',padding:'6px 12px',border:'1px solid #f59e0b44',background:'#78350f22',borderRadius:8,display:'inline-block'}} className="pulse">PENDING</span>
                     )}
                     {held&&!pendingOrders.current.has(s.symbol)&&(
-                      <span style={{fontSize:12,fontWeight:700,color:'#a78bfa',padding:'6px 12px',border:'1px solid #a78bfa44',background:'#0d0018',borderRadius:4,display:'inline-block'}}>HELD</span>
+                      <span style={{fontSize:12,fontWeight:700,color:'#8b5cf6',padding:'6px 12px',border:'1px solid #8b5cf644',background:'#4c1d9522',borderRadius:8,display:'inline-block'}}>HELD</span>
                     )}
                     {!isBuy&&!held&&<span style={{fontSize:11,color:'#1e293b'}}>--</span>}
                   </td>
@@ -1556,14 +1557,14 @@ function App(){
               const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
               return(
                 <tr key={pos.id} style={{cursor:'pointer'}} onClick={()=>{setSelectedSym(pos.symbol);setTab('chart');if(isMobile)setMobileTab('chart');}}>
-                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:2}}>*</span>}{pos.symbol}</td>
-                  <td style={{...td,color:'#64748b'}}>{usd(pos.entryPrice)}</td>
-                  <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{usd(pos.currentPrice)}</td>
-                  <td style={{...td,fontWeight:700,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</td>
-                  <td style={{...td,color:'#ef4444',fontSize:9}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
-                  <td style={{...td,color:'#22c55e',fontSize:9}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
+                  <td style={{...td,fontWeight:700,color:TIER_COLOR[SEEDS.find(s=>s.symbol===pos.symbol)?.tier]||'#06b6d4'}}>{pos.isAuto&&<span style={{color:'#8b5cf6',marginRight:2}}>*</span>}{pos.symbol}</td>
+                  <td style={{...td,color:'#64748b',fontFamily:"'IBM Plex Mono',monospace"}}>{usd(pos.entryPrice)}</td>
+                  <td style={{...td,fontWeight:700,color:pl>=0?'#10b981':'#f43f5e',fontFamily:"'IBM Plex Mono',monospace"}}>{usd(pos.currentPrice)}</td>
+                  <td style={{...td,fontWeight:700,color:pl>=0?'#10b981':'#f43f5e',fontFamily:"'IBM Plex Mono',monospace"}}>{pnlFmt(pl)}</td>
+                  <td style={{...td,color:'#f43f5e',fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>{pos.stopLoss?usd(pos.stopLoss):'--'}</td>
+                  <td style={{...td,color:'#10b981',fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>{pos.takeProfit?usd(pos.takeProfit):'--'}</td>
                   <td style={{...td,color:'#475569',fontSize:8}}>{heldS}s</td>
-                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:4,position:'relative',zIndex:50}}>Close</button></td>
+                  <td style={td}><button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{padding:'7px 14px',fontSize:12,fontWeight:700,border:'2px solid #be123c',color:'#f43f5e',background:'#88133722',cursor:'pointer',borderRadius:8,position:'relative',zIndex:50}}>Close</button></td>
                 </tr>
               );
             })}
@@ -1592,9 +1593,9 @@ function App(){
 
   // -- Hero metric card helper --
   const heroCard=(label,value,color,sub=null)=>(
-    <div style={{background:'#0a0a14',borderRadius:6,padding:'8px 10px',border:'1px solid #1e293b33',minWidth:0,flex:1}}>
+    <div style={{background:'#1e293b',borderRadius:12,padding:'8px 10px',border:'1px solid #33415544',minWidth:0,flex:1,boxShadow:'0 1px 3px rgba(0,0,0,0.3)'}}>
       <div style={{fontSize:8,color:'#475569',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:2,whiteSpace:'nowrap'}}>{label}</div>
-      <div style={{fontSize:16,fontWeight:800,color,lineHeight:1.2,whiteSpace:'nowrap'}}>{value}</div>
+      <div style={{fontSize:16,fontWeight:800,color,lineHeight:1.2,whiteSpace:'nowrap',fontFamily:"'IBM Plex Mono',monospace"}}>{value}</div>
       {sub&&<div style={{fontSize:9,color:'#475569',marginTop:1,whiteSpace:'nowrap'}}>{sub}</div>}
     </div>
   );
@@ -1603,36 +1604,36 @@ function App(){
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
 
       {/* Mode toggle + backtest controls */}
-      <div style={{flexShrink:0,background:'#07070c',borderBottom:'1px solid #0f0f18'}}>
+      <div style={{flexShrink:0,background:'#1e293b',borderBottom:'1px solid #334155'}}>
         <div style={{display:'flex',alignItems:'center',padding:'6px 10px',gap:6}}>
           {['live','backtest'].map(m=>(
             <button key={m} onClick={()=>setBtMode(m)}
               style={{padding:'4px 12px',fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',
-                border:'1px solid '+(btMode===m?'#22c55e44':'#1e293b'),
-                color:btMode===m?'#22c55e':'#475569',
-                background:btMode===m?'#0a1a0a':'transparent',
-                borderRadius:3,cursor:'pointer'}}>
+                border:'1px solid '+(btMode===m?'#10b98144':'#1e293b'),
+                color:btMode===m?'#10b981':'#475569',
+                background:btMode===m?'#064e3b22':'transparent',
+                borderRadius:6,cursor:'pointer'}}>
               {m==='live'?'Live ('+(portfolio.history.length||0)+')':'Backtest'+(btTrades.length?'  ('+btTrades.length+')':'')}
             </button>
           ))}
-          {btRunning&&<span style={{fontSize:9,color:'#fbbf24',marginLeft:4}} className="pulse">Running...</span>}
-          {btError&&<span style={{fontSize:9,color:'#ef4444',marginLeft:4,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Error: {btError}</span>}
+          {btRunning&&<span style={{fontSize:9,color:'#f59e0b',marginLeft:4}} className="pulse">Running...</span>}
+          {btError&&<span style={{fontSize:9,color:'#f43f5e',marginLeft:4,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>Error: {btError}</span>}
         </div>
 
         {btMode==='backtest'&&(
           <div style={{padding:'0 10px 8px 10px',display:'flex',flexWrap:'wrap',gap:8,alignItems:'flex-end'}}>
             {/* Target Symbol selector */}
             <div style={{display:'flex',flexDirection:'column',gap:2}}>
-              <span style={{fontSize:8,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:700}}>Symbol</span>
+              <span style={{fontSize:8,color:'#8b5cf6',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:700}}>Symbol</span>
               <select value={btCfg.symbols} onChange={e=>setBtCfg(p=>({...p,symbols:e.target.value}))}
-                style={{background:'#0a0a14',border:'1px solid '+(btCfg.symbols!=='ALL'?'#a78bfa88':'#1e293b'),color:btCfg.symbols!=='ALL'?'#a78bfa':'#e2e8f0',fontSize:10,padding:'3px 5px',borderRadius:3,fontWeight:700}}>
+                style={{background:'#1e293b',border:'1px solid '+(btCfg.symbols!=='ALL'?'#8b5cf688':'#1e293b'),color:btCfg.symbols!=='ALL'?'#8b5cf6':'#e2e8f0',fontSize:10,padding:'3px 5px',borderRadius:6,fontWeight:700}}>
                 <option value="ALL">ALL (2)</option>
                 {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
               </select>
             </div>
             {[
               {label:'Days',key:'days',opts:[7,14,30,60]},
-              {label:'TF',key:'timeframe',opts:['1Min','5Min','15Min']},
+              {label:'TF',key:'timeframe',opts:['1Min','5Min','15Min','1Hour','4Hour','1Day']},
               {label:'Min Str%',key:'minStrength',opts:[35,45,55,65]},
               {label:'Pos $',key:'posAmt',opts:[1000,2000,5000]},
               {label:'MaxPos',key:'maxPositions',opts:[1,2]},
@@ -1640,17 +1641,17 @@ function App(){
               <div key={key} style={{display:'flex',flexDirection:'column',gap:2}}>
                 <span style={{fontSize:8,color:'#475569',textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</span>
                 <select value={btCfg[key]} onChange={e=>setBtCfg(p=>({...p,[key]:isNaN(e.target.value)?e.target.value:+e.target.value}))}
-                  style={{background:'#0a0a14',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:10,padding:'3px 5px',borderRadius:3}}>
+                  style={{background:'#1e293b',border:'1px solid #1e293b',color:'#e2e8f0',fontSize:10,padding:'3px 5px',borderRadius:6}}>
                   {opts.map(o=><option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
             ))}
             <button onClick={runBacktest} disabled={btRunning}
               style={{padding:'6px 14px',fontSize:10,fontWeight:800,
-                border:'2px solid '+(btRunning?'#334155':'#a78bfa'),
-                color:btRunning?'#334155':'#a78bfa',
-                background:btRunning?'transparent':'#120020',
-                borderRadius:4,cursor:btRunning?'not-allowed':'pointer',
+                border:'2px solid '+(btRunning?'#334155':'#8b5cf6'),
+                color:btRunning?'#334155':'#8b5cf6',
+                background:btRunning?'transparent':'#4c1d9522',
+                borderRadius:8,cursor:btRunning?'not-allowed':'pointer',
                 letterSpacing:'0.04em',alignSelf:'flex-end'}}>
               {btRunning?'Running...':'RUN'}
             </button>
@@ -1658,7 +1659,7 @@ function App(){
         )}
 
         {btMode==='backtest'&&btSummary&&(
-          <div style={{padding:'4px 10px 6px',display:'flex',gap:14,flexWrap:'wrap',borderTop:'1px solid #0a0a10'}}>
+          <div style={{padding:'4px 10px 6px',display:'flex',gap:14,flexWrap:'wrap',borderTop:'1px solid #1e293b'}}>
             {[
               ['Symbols',btSummary.symbolsTraded+'/'+btSummary.symbols],
               ['Bars',btSummary.totalBars?.toLocaleString()],
@@ -1677,27 +1678,27 @@ function App(){
       {/* ================================================================== */}
       {/* HERO DASHBOARD: key metrics visible instantly, no scrolling needed */}
       {/* ================================================================== */}
-      <div style={{flexShrink:0,background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 10px'}}>
+      <div style={{flexShrink:0,background:'#1e293b',borderBottom:'1px solid #334155',padding:'8px 10px'}}>
         {trades.length===0?(
           <div style={{textAlign:'center',padding:'8px 0',color:'#334155',fontSize:11}}>
             {btMode==='backtest'?'Press RUN to backtest.':'No closed trades yet.'}
           </div>
         ):(
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6}}>
-            {heroCard('Net P&L',pnlFmt(realPnl),realPnl>=0?'#22c55e':'#ef4444',trades.length+' trades')}
-            {heroCard('Win Rate',(winRate??0)+'%',(winRate??0)>=50?'#22c55e':'#ef4444',wns.length+'W / '+lss.length+'L')}
+            {heroCard('Net P&L',pnlFmt(realPnl),realPnl>=0?'#10b981':'#f43f5e',trades.length+' trades')}
+            {heroCard('Win Rate',(winRate??0)+'%',(winRate??0)>=50?'#10b981':'#f43f5e',wns.length+'W / '+lss.length+'L')}
             {heroCard('Profit Factor',
               profitFactor===Infinity?'INF':profitFactor.toFixed(2),
-              profitFactor===Infinity||profitFactor>=1.5?'#22c55e':profitFactor>=1?'#fbbf24':'#ef4444',
+              profitFactor===Infinity||profitFactor>=1.5?'#10b981':profitFactor>=1?'#f59e0b':'#f43f5e',
               'gross W/L'
             )}
             {heroCard('Max Drawdown','-'+maxDrawdown.toFixed(2)+'%',
-              maxDrawdown<5?'#22c55e':maxDrawdown<15?'#fbbf24':'#ef4444',
+              maxDrawdown<5?'#10b981':maxDrawdown<15?'#f59e0b':'#f43f5e',
               'from peak'
             )}
             {heroCard('Sharpe',
               sharpe===null?'--':sharpe>=0?'+'+sharpe.toFixed(1):sharpe.toFixed(1),
-              sharpe===null?'#475569':sharpe>=1?'#22c55e':sharpe>=0?'#fbbf24':'#ef4444',
+              sharpe===null?'#475569':sharpe>=1?'#10b981':sharpe>=0?'#f59e0b':'#f43f5e',
               'annualised'
             )}
           </div>
@@ -1706,13 +1707,13 @@ function App(){
 
       {/* Equity Curve -- sits right below hero cards */}
       <div style={{padding:'3px 10px',fontSize:8,fontWeight:700,
-        color:btMode==='backtest'?'#a78bfa':'#22c55e',
+        color:btMode==='backtest'?'#8b5cf6':'#10b981',
         textTransform:'uppercase',letterSpacing:'0.1em',
-        borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
+        borderBottom:'1px solid #334155',background:'#1e293b',flexShrink:0}}>
         {btMode==='backtest'?'Backtest':'Live'} Equity Curve
         {trades.length>0&&<span style={{marginLeft:8,color:'#334155',fontWeight:400}}>({trades.length} trades)</span>}
       </div>
-      <div style={{height:130,flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
+      <div style={{height:130,flexShrink:0,borderBottom:'1px solid #334155'}}>
         <EquityCurve history={closed} currentEquity={btMode==='backtest'?(INITIAL_EQUITY+trades.reduce((a,t)=>a+t.profit,0)):equity}/>
       </div>
 
@@ -1722,13 +1723,13 @@ function App(){
           <>
             {/* Detailed stats */}
             {sectionHead('Trade Details')}
-            {stat('Avg Win', pnlFmt(avgWin), '#22c55e')}
-            {stat('Avg Loss', pnlFmt(avgLoss), '#ef4444')}
-            {stat('Best Trade', pnlFmt(bestTrade), '#22c55e')}
-            {stat('Worst Trade', pnlFmt(worstTrade), '#ef4444')}
+            {stat('Avg Win', pnlFmt(avgWin), '#10b981')}
+            {stat('Avg Loss', pnlFmt(avgLoss), '#f43f5e')}
+            {stat('Best Trade', pnlFmt(bestTrade), '#10b981')}
+            {stat('Worst Trade', pnlFmt(worstTrade), '#f43f5e')}
             {stat('Return vs Start',
               (totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',
-              totalRet>=0?'#22c55e':totalRet>-5?'#fbbf24':'#ef4444'
+              totalRet>=0?'#10b981':totalRet>-5?'#f59e0b':'#f43f5e'
             )}
 
             {stratStats.length>0&&(
@@ -1738,27 +1739,27 @@ function App(){
                   <div style={{display:'table-header-group'}}>
                     <div style={{display:'table-row'}}>
                       {['Strategy','Trades','Win%','P&L'].map(h=>(
-                        <div key={h} style={{display:'table-cell',fontSize:8,color:'#334155',fontWeight:700,textTransform:'uppercase',paddingBottom:4,letterSpacing:'0.06em',borderBottom:'1px solid #0f0f18'}}>{h}</div>
+                        <div key={h} style={{display:'table-cell',fontSize:8,color:'#334155',fontWeight:700,textTransform:'uppercase',paddingBottom:4,letterSpacing:'0.06em',borderBottom:'1px solid #334155'}}>{h}</div>
                       ))}
                     </div>
                   </div>
                   <div style={{display:'table-row-group'}}>
                     {stratStats.map(s=>{
-                      const pnlC=s.pnl>=0?'#22c55e':'#ef4444';
-                      const wrC=s.wr>=55?'#22c55e':s.wr>=45?'#fbbf24':'#ef4444';
+                      const pnlC=s.pnl>=0?'#10b981':'#f43f5e';
+                      const wrC=s.wr>=55?'#10b981':s.wr>=45?'#f59e0b':'#f43f5e';
                       return(
                         <div key={s.strategy} style={{display:'table-row'}}>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:'#a78bfa',verticalAlign:'middle'}}>{s.strategy}</div>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,color:'#94a3b8',verticalAlign:'middle'}}>{s.n}</div>
-                          <div style={{display:'table-cell',padding:'5px 4px',borderBottom:'1px solid #0a0a10',verticalAlign:'middle'}}>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,fontWeight:700,color:'#8b5cf6',verticalAlign:'middle'}}>{s.strategy}</div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,color:'#94a3b8',verticalAlign:'middle'}}>{s.n}</div>
+                          <div style={{display:'table-cell',padding:'5px 4px',borderBottom:'1px solid #1e293b',verticalAlign:'middle'}}>
                             <div style={{display:'flex',alignItems:'center',gap:4}}>
-                              <div style={{width:28,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+                              <div style={{width:28,height:4,background:'#334155',borderRadius:2,overflow:'hidden',flexShrink:0}}>
                                 <div style={{height:'100%',width:s.wr+'%',background:wrC,borderRadius:2}}/>
                               </div>
                               <span style={{fontSize:10,fontWeight:700,color:wrC}}>{s.wr}%</span>
                             </div>
                           </div>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:pnlC,verticalAlign:'middle',textAlign:'right'}}>{pnlFmt(s.pnl)}</div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,fontWeight:700,color:pnlC,verticalAlign:'middle',textAlign:'right'}}>{pnlFmt(s.pnl)}</div>
                         </div>
                       );
                     })}
@@ -1774,28 +1775,28 @@ function App(){
                   <div style={{display:'table-header-group'}}>
                     <div style={{display:'table-row'}}>
                       {['Symbol','Trades','Win%','Net P&L'].map(h=>(
-                        <div key={h} style={{display:'table-cell',fontSize:8,color:'#334155',fontWeight:700,textTransform:'uppercase',paddingBottom:4,letterSpacing:'0.06em',borderBottom:'1px solid #0f0f18'}}>{h}</div>
+                        <div key={h} style={{display:'table-cell',fontSize:8,color:'#334155',fontWeight:700,textTransform:'uppercase',paddingBottom:4,letterSpacing:'0.06em',borderBottom:'1px solid #334155'}}>{h}</div>
                       ))}
                     </div>
                   </div>
                   <div style={{display:'table-row-group'}}>
                     {symStats.map(s=>{
-                      const pnlC=s.pnl>=0?'#22c55e':'#ef4444';
-                      const wrC=s.wr>=55?'#22c55e':s.wr>=45?'#fbbf24':'#ef4444';
+                      const pnlC=s.pnl>=0?'#10b981':'#f43f5e';
+                      const wrC=s.wr>=55?'#10b981':s.wr>=45?'#f59e0b':'#f43f5e';
                       const seed=SEEDS.find(sd=>sd.symbol===s.symbol);
                       return(
                         <div key={s.symbol} style={{display:'table-row'}}>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:TIER_COLOR[seed?.tier]||'#22d3ee',verticalAlign:'middle'}}>{s.symbol}</div>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,color:'#94a3b8',verticalAlign:'middle'}}>{s.n}</div>
-                          <div style={{display:'table-cell',padding:'5px 4px',borderBottom:'1px solid #0a0a10',verticalAlign:'middle'}}>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,fontWeight:700,color:TIER_COLOR[seed?.tier]||'#06b6d4',verticalAlign:'middle'}}>{s.symbol}</div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,color:'#94a3b8',verticalAlign:'middle'}}>{s.n}</div>
+                          <div style={{display:'table-cell',padding:'5px 4px',borderBottom:'1px solid #1e293b',verticalAlign:'middle'}}>
                             <div style={{display:'flex',alignItems:'center',gap:4}}>
-                              <div style={{width:28,height:4,background:'#0f0f14',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+                              <div style={{width:28,height:4,background:'#334155',borderRadius:2,overflow:'hidden',flexShrink:0}}>
                                 <div style={{height:'100%',width:s.wr+'%',background:wrC,borderRadius:2}}/>
                               </div>
                               <span style={{fontSize:10,fontWeight:700,color:wrC}}>{s.wr}%</span>
                             </div>
                           </div>
-                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #0a0a10',fontSize:10,fontWeight:700,color:pnlC,verticalAlign:'middle',textAlign:'right'}}>{pnlFmt(s.pnl)}</div>
+                          <div style={{display:'table-cell',padding:'5px 0',borderBottom:'1px solid #1e293b',fontSize:10,fontWeight:700,color:pnlC,verticalAlign:'middle',textAlign:'right'}}>{pnlFmt(s.pnl)}</div>
                         </div>
                       );
                     })}
@@ -1810,12 +1811,12 @@ function App(){
               .map(([k,v])=>{
                 const isWin=k==='TAKE_PROFIT';
                 const isStop=k.includes('STOP')||k==='STOP_LOSS';
-                const barC=isWin?'#22c55e':isStop?'#ef4444':'#475569';
+                const barC=isWin?'#10b981':isStop?'#f43f5e':'#475569';
                 return(
-                  <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid #0a0a10'}}>
-                    <span style={{fontSize:10,color:isWin?'#22c55e':isStop?'#ef4444':'#475569',fontWeight:600}}>{k.replace(/_/g,' ')}</span>
+                  <div key={k} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid #1e293b'}}>
+                    <span style={{fontSize:10,color:isWin?'#10b981':isStop?'#f43f5e':'#475569',fontWeight:600}}>{k.replace(/_/g,' ')}</span>
                     <div style={{display:'flex',alignItems:'center',gap:5}}>
-                      <div style={{width:44,height:3,background:'#0f0f14',borderRadius:2,overflow:'hidden'}}>
+                      <div style={{width:44,height:3,background:'#334155',borderRadius:2,overflow:'hidden'}}>
                         <div style={{height:'100%',width:Math.round((v/trades.length)*100)+'%',background:barC,borderRadius:2}}/>
                       </div>
                       <span style={{fontSize:10,color:'#64748b',minWidth:16,textAlign:'right'}}>{v}</span>
@@ -1841,11 +1842,11 @@ function App(){
             {closed.map((t,i)=>(
               <tr key={i}>
                 <td style={{...td,color:'#334155',fontSize:8}}>{t.t}</td>
-                <td style={{...td,fontWeight:700,color:'#22d3ee'}}>{t.symbol}</td>
-                <td style={td}><span style={{fontSize:7,padding:'1px 4px',border:'1px solid '+(t.type==='TAKE_PROFIT'?'#16a34a':t.type.includes('STOP')?'#991b1b':'#334155'),color:t.type==='TAKE_PROFIT'?'#22c55e':t.type.includes('STOP')?'#ef4444':'#94a3b8'}}>{t.type.replace(/_/g,' ')}</span></td>
+                <td style={{...td,fontWeight:700,color:'#06b6d4'}}>{t.symbol}</td>
+                <td style={td}><span style={{fontSize:7,padding:'1px 4px',border:'1px solid '+(t.type==='TAKE_PROFIT'?'#059669':t.type.includes('STOP')?'#be123c':'#334155'),color:t.type==='TAKE_PROFIT'?'#10b981':t.type.includes('STOP')?'#f43f5e':'#94a3b8'}}>{t.type.replace(/_/g,' ')}</span></td>
                 <td style={{...td,color:'#64748b'}}>{usd(t.entry)}</td>
                 <td style={{...td,color:'#94a3b8'}}>{usd(t.exit)}</td>
-                <td style={{...td,fontWeight:700,color:t.profit>=0?'#22c55e':'#ef4444'}}>{pnlFmt(t.profit)}</td>
+                <td style={{...td,fontWeight:700,color:t.profit>=0?'#10b981':'#f43f5e'}}>{pnlFmt(t.profit)}</td>
                 <td style={{...td,color:'#475569',fontSize:8}}>{t.held}</td>
               </tr>
             ))}
@@ -1860,49 +1861,49 @@ function App(){
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflowY:'auto'}}>
 
       {/* AUTO-EXECUTE */}
-      <div style={{padding:'14px 14px',borderBottom:'1px solid #0f0f18',background:autoOn?'#07110a':'#07070c',flexShrink:0}}>
-        <div style={{fontSize:11,color:autoOn?'#4ade80':'#64748b',marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}}>
+      <div style={{padding:'14px 14px',borderBottom:'1px solid #334155',background:autoOn?'#064e3b15':'#1e293b',flexShrink:0}}>
+        <div style={{fontSize:11,color:autoOn?'#34d399':'#64748b',marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}}>
           {autoOn?'Engine running --- orders sent to Alpaca Paper':'Engine off --- manual approval only'}
         </div>
         <button
           onClick={()=>setAutoOn(p=>{const n=!p;addLog(n?'[ENGINE] Auto-Execute ON':'[ENGINE] Auto-Execute OFF',n?'trade':'info');return n;})}
           style={{width:'100%',padding:'14px 0',fontSize:16,fontWeight:800,
-            border:'2px solid '+(autoOn?'#22c55e':'#334155'),
+            border:'2px solid '+(autoOn?'#10b981':'#334155'),
             color:autoOn?'#fff':'#94a3b8',
-            background:autoOn?'linear-gradient(135deg,#14532d,#166534)':'#0d0d14',
+            background:autoOn?'linear-gradient(135deg,#064e3b,#065f46)':'#334155',
             borderRadius:6,cursor:'pointer',letterSpacing:'0.04em',
-            boxShadow:autoOn?'0 0 20px #22c55e44':'none',transition:'all 0.2s'}}>
+            boxShadow:autoOn?'0 0 20px #10b98144':'none',transition:'all 0.2s'}}>
           {autoOn?'AUTO-EXECUTE: ON  --  Click to Pause':'AUTO-EXECUTE: OFF  --  Click to Activate'}
         </button>
         {autoOn&&(
           <div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap'}}>
-            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+            <div style={{flex:1,background:'#064e3b22',padding:'6px 10px',borderRadius:8,border:'1px solid #05966922'}}>
               <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>Open slots</div>
-              <div style={{fontSize:16,fontWeight:700,color:'#22c55e'}}>{cfg.maxPositions-portfolio.positions.length}</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#10b981'}}>{cfg.maxPositions-portfolio.positions.length}</div>
             </div>
-            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+            <div style={{flex:1,background:'#064e3b22',padding:'6px 10px',borderRadius:8,border:'1px solid #05966922'}}>
               <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>Signals</div>
-              <div style={{fontSize:16,fontWeight:700,color:'#22c55e'}}>{buys.length}</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#10b981'}}>{buys.length}</div>
             </div>
-            <div style={{flex:1,background:'#0a1a0a',padding:'6px 10px',borderRadius:4,border:'1px solid #16a34a22'}}>
+            <div style={{flex:1,background:'#064e3b22',padding:'6px 10px',borderRadius:8,border:'1px solid #05966922'}}>
               <div style={{fontSize:9,color:'#475569',textTransform:'uppercase'}}>In trades</div>
-              <div style={{fontSize:16,fontWeight:700,color:'#a78bfa'}}>{portfolio.positions.length}</div>
+              <div style={{fontSize:16,fontWeight:700,color:'#8b5cf6'}}>{portfolio.positions.length}</div>
             </div>
           </div>
         )}
         {/* Pending orders indicator */}
         {pendingOrders.current.size>0&&(
-          <div style={{marginTop:6,fontSize:10,color:'#fbbf24',fontStyle:'italic'}} className="pulse">
+          <div style={{marginTop:6,fontSize:10,color:'#f59e0b',fontStyle:'italic'}} className="pulse">
             {pendingOrders.current.size} order{pendingOrders.current.size>1?'s':''} pending fill...
           </div>
         )}
       </div>
 
       {/* Live Positions (right panel mini-view) */}
-      <div style={{flexShrink:0,borderBottom:'1px solid #0f0f18'}}>
-        <div style={{padding:'8px 14px',fontSize:11,fontWeight:700,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.08em',background:'#08080f',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div style={{flexShrink:0,borderBottom:'1px solid #334155'}}>
+        <div style={{padding:'8px 14px',fontSize:11,fontWeight:700,color:'#8b5cf6',textTransform:'uppercase',letterSpacing:'0.08em',background:'#1e293b',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <span>Open Positions</span>
-          <span style={{color:openPnl>=0?'#22c55e':'#ef4444',fontWeight:700}}>{pnlFmt(openPnl)}</span>
+          <span style={{color:openPnl>=0?'#10b981':'#f43f5e',fontWeight:700}}>{pnlFmt(openPnl)}</span>
         </div>
         {portfolio.positions.length===0?(
           <div style={{padding:'16px',textAlign:'center',color:'#1e293b',fontSize:12}}>{autoOn?'Scanning for entries...':'Activate engine or buy manually'}</div>
@@ -1913,21 +1914,21 @@ function App(){
               const heldS=Math.round((Date.now()-pos.enteredAt)/1000);
               const seed=SEEDS.find(s=>s.symbol===pos.symbol);
               return(
-                <div key={pos.id} style={{padding:'10px 14px',borderBottom:'1px solid #0a0a12',cursor:'pointer',background:pl>=0?'#060e06':'#0e0606'}}
+                <div key={pos.id} style={{padding:'10px 14px',borderBottom:'1px solid #1e293b44',cursor:'pointer',background:pl>=0?'#064e3b15':'#88133715',borderRadius:8,marginBottom:4,boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}
                   onClick={()=>setSelectedSym(pos.symbol)}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                    <span style={{fontWeight:800,fontSize:14,color:TIER_COLOR[seed?.tier]||'#22d3ee'}}>{pos.isAuto&&<span style={{color:'#a78bfa',marginRight:3}}>*</span>}{pos.symbol}</span>
-                    <span style={{fontWeight:700,fontSize:14,color:pl>=0?'#22c55e':'#ef4444'}}>{pnlFmt(pl)}</span>
+                    <span style={{fontWeight:800,fontSize:14,color:TIER_COLOR[seed?.tier]||'#06b6d4'}}>{pos.isAuto&&<span style={{color:'#8b5cf6',marginRight:3}}>*</span>}{pos.symbol}</span>
+                    <span style={{fontWeight:700,fontSize:14,color:pl>=0?'#10b981':'#f43f5e',fontFamily:"'IBM Plex Mono',monospace"}}>{pnlFmt(pl)}</span>
                   </div>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569',marginBottom:6}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569',marginBottom:6,fontFamily:"'IBM Plex Mono',monospace"}}>
                     <span>Entry {usd(pos.entryPrice)}</span>
                     <span>Now {usd(pos.currentPrice)}</span>
                     <span style={{color:'#334155'}}>{heldS}s</span>
                   </div>
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                    <span style={{fontSize:10,color:'#ef4444'}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
-                    <span style={{fontSize:10,color:'#22c55e'}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
-                    <button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #991b1b',color:'#ef4444',background:'#110000',cursor:'pointer',borderRadius:3,position:'relative',zIndex:50}}>Close</button>
+                    <span style={{fontSize:10,color:'#f43f5e',fontFamily:"'IBM Plex Mono',monospace"}}>SL {pos.stopLoss?usd(pos.stopLoss):'--'}</span>
+                    <span style={{fontSize:10,color:'#10b981',fontFamily:"'IBM Plex Mono',monospace"}}>TP {pos.takeProfit?usd(pos.takeProfit):'--'}</span>
+                    <button onClick={e=>{e.stopPropagation();console.log('Button DOM clicked',pos.symbol);closePosition(pos.symbol);}} style={{marginLeft:'auto',padding:'5px 12px',fontSize:11,fontWeight:700,border:'1px solid #be123c',color:'#f43f5e',background:'#88133722',cursor:'pointer',borderRadius:6,position:'relative',zIndex:50}}>Close</button>
                   </div>
                 </div>
               );
@@ -1937,16 +1938,16 @@ function App(){
       </div>
 
       {/* Trade Settings */}
-      <div style={{padding:'12px 14px',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+      <div style={{padding:'12px 14px',borderBottom:'1px solid #334155',flexShrink:0}}>
         <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#475569',marginBottom:10}}>Trade Settings</div>
-        <div style={{marginBottom:12,background:'#0a0a14',padding:'10px 12px',borderRadius:5,border:'1px solid #1e293b'}}>
+        <div style={{marginBottom:12,background:'#1e293b',padding:'10px 12px',borderRadius:8,border:'1px solid #33415544',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
             <span style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Position Size ($ per trade)</span>
-            <span style={{fontSize:14,fontWeight:800,color:'#fbbf24'}}>${manualAmt.toLocaleString()}</span>
+            <span style={{fontSize:14,fontWeight:800,color:'#f59e0b'}}>${manualAmt.toLocaleString()}</span>
           </div>
           <input type="range" min={500} max={20000} step={500} value={manualAmt}
             onChange={e=>setManualAmt(Number(e.target.value))}
-            style={{width:'100%',height:6,accentColor:'#fbbf24',marginBottom:4}}/>
+            style={{width:'100%',height:6,accentColor:'#f59e0b',marginBottom:4}}/>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#334155'}}>
             <span>$500</span>
             <span style={{color:'#64748b'}}>auto + manual</span>
@@ -1967,20 +1968,20 @@ function App(){
             </div>
             <input type="range" min={min} max={max} step={step} value={cfg[k]}
               onChange={e=>setCfg(p=>({...p,[k]:Number(e.target.value)}))}
-              style={{width:'100%',height:4,accentColor:'#a78bfa'}}/>
+              style={{width:'100%',height:4,accentColor:'#8b5cf6'}}/>
           </div>
         ))}
       </div>
 
       {/* System Log */}
       <div style={{flex:1,display:'flex',flexDirection:'column',minHeight:0}}>
-        <div style={{padding:'6px 14px',fontSize:10,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em',borderBottom:'1px solid #0f0f18',background:'#08080f',flexShrink:0}}>Activity Log</div>
+        <div style={{padding:'6px 14px',fontSize:10,fontWeight:700,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em',borderBottom:'1px solid #334155',background:'#1e293b',flexShrink:0}}>Activity Log</div>
         <div style={{overflowY:'auto',flex:1,padding:'4px 10px',display:'flex',flexDirection:'column',gap:2}}>
           {sysLog.length===0&&<div style={{color:'#1e293b',fontSize:11,padding:8,textAlign:'center'}}>Awaiting activity...</div>}
           {sysLog.map((e,i)=>(
             <div key={i} style={{display:'flex',gap:6,fontSize:11,lineHeight:1.6,padding:'1px 0'}}>
               <span style={{color:'#334155',flexShrink:0,fontSize:10}}>{e.t}</span>
-              <span style={{wordBreak:'break-all',color:e.type==='trade'?'#22d3ee':e.type==='profit'?'#22c55e':e.type==='loss'?'#ef4444':e.type==='warn'?'#f59e0b':'#475569'}}>{e.msg}</span>
+              <span style={{wordBreak:'break-all',color:e.type==='trade'?'#06b6d4':e.type==='profit'?'#10b981':e.type==='loss'?'#f43f5e':e.type==='warn'?'#f59e0b':'#475569'}}>{e.msg}</span>
             </div>
           ))}
         </div>
@@ -1990,21 +1991,21 @@ function App(){
 
   // -- Layout ------------------------------------------------------------------
   return(
-    <div style={{height:'100vh',background:'#050507',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
+    <div style={{height:'100vh',background:'#0f172a',display:'flex',flexDirection:'column',maxWidth:'100vw',overflow:'hidden'}}>
 
       {/* HEADER */}
-      <div style={{background:'#07070c',borderBottom:'1px solid #0f0f18',padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flexShrink:0}}>
+      <div style={{background:'#1e293b',borderBottom:'1px solid #334155',padding:'8px 16px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:10,height:10,borderRadius:'50%',background:modeColor,boxShadow:'0 0 8px '+modeColor}} className={isActive?'pulse':''}/>
           <span style={{fontSize:17,fontWeight:700,letterSpacing:'0.12em',color:'#f1f5f9'}}>TFP</span>
-          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700,borderRadius:3}}>
+          <span style={{fontSize:11,color:modeColor,border:'1px solid '+modeColor+'44',padding:'3px 8px',fontWeight:700,borderRadius:6}}>
             {dataMode==='live'?'LIVE':dataMode==='sim'?'SIM':dataMode==='demo'?'DEMO':dataMode==='connecting'?'...':'OFF'}
           </span>
           {/* Paper trading badge --- always visible in live mode */}
           {dataMode==='live'&&(
-            <span style={{fontSize:10,color:'#fbbf24',border:'1px solid #fbbf2444',background:'#1c110033',padding:'3px 8px',fontWeight:700,borderRadius:3,letterSpacing:'0.06em'}}>PAPER</span>
+            <span style={{fontSize:10,color:'#f59e0b',border:'1px solid #f59e0b44',background:'#78350f33',padding:'3px 8px',fontWeight:700,borderRadius:6,letterSpacing:'0.06em'}}>PAPER</span>
           )}
-          {isDemoMode&&<span style={{fontSize:11,color:'#a78bfa',border:'1px solid #a78bfa44',padding:'3px 8px',fontWeight:700,borderRadius:3}} className="pulse">DEMO {demoProgress}%</span>}
+          {isDemoMode&&<span style={{fontSize:11,color:'#8b5cf6',border:'1px solid #8b5cf644',padding:'3px 8px',fontWeight:700,borderRadius:6}} className="pulse">DEMO {demoProgress}%</span>}
           <div style={{width:8,height:8,borderRadius:'50%',background:mktCol}} className={mktStatus.isOpen?'pulse':''}/>
           <span style={{fontSize:11,color:mktCol,fontWeight:700}}>{mktStatus.status}</span>
           <span style={{fontSize:11,color:'#475569'}}>{mktStatus.etTime.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'})} ET</span>
@@ -2012,34 +2013,34 @@ function App(){
         <div style={{display:'flex',gap:8,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
           {portfolio.loaded?(
             <>
-              <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#22c55e':'#ef4444'}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
-              <span style={{fontSize:12,color:totalRet>=0?'#16a34a':'#dc2626'}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
+              <span style={{fontSize:16,fontWeight:700,color:totalRet>=0?'#10b981':'#f43f5e',fontFamily:"'IBM Plex Mono',monospace"}}>${equity.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+              <span style={{fontSize:12,color:totalRet>=0?'#059669':'#e11d48',fontFamily:"'IBM Plex Mono',monospace"}}>{totalRet>=0?'+':''}{totalRet.toFixed(2)}%</span>
             </>
           ):(
             <span style={{fontSize:13,color:'#334155'}}>-- Connect to load account --</span>
           )}
-          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#ef4444',border:'1px solid #ef444433',padding:'3px 8px',borderRadius:3}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
+          {riskAlerts.filter(a=>a.level==='danger').length>0&&<span style={{fontSize:11,color:'#f43f5e',border:'1px solid #f43f5e33',padding:'3px 8px',borderRadius:6}}>! {riskAlerts.filter(a=>a.level==='danger').length} ALERT</span>}
           {dataMode==='idle'
-            ?<button onClick={connectLive} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #ca8a04',color:'#fbbf24',background:'#1c100044',cursor:'pointer',borderRadius:4}}>Connect Live</button>
-            :<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disconnected.');}} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer',borderRadius:4}}>Disconnect</button>
+            ?<button onClick={connectLive} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #b45309',color:'#f59e0b',background:'#78350f2244',cursor:'pointer',borderRadius:8}}>Connect Live</button>
+            :<button onClick={()=>{setDataMode('idle');setAutoOn(false);wsRef.current?.close();addLog('[STREAM] Disconnected.');}} style={{padding:'7px 18px',fontSize:12,fontWeight:700,border:'1px solid #1e293b',color:'#475569',background:'transparent',cursor:'pointer',borderRadius:8}}>Disconnect</button>
           }
         </div>
       </div>
 
       {/* KPI BAR */}
       {!isMobile&&(
-        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#0a0a10',borderBottom:'1px solid #0f0f18',flexShrink:0}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:1,background:'#1e293b',borderBottom:'1px solid #334155',flexShrink:0}}>
           {[
-            {l:'EQUITY',v:portfolio.loaded?'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#22c55e':'#ef4444'},
-            {l:'OPEN P&L',v:pnlFmt(openPnl),s:portfolio.positions.length+' open',vc:openPnl>=0?'#22c55e':'#ef4444'},
-            {l:'REALISED',v:pnlFmt(realPnl),s:closed.length+' trades',vc:realPnl>=0?'#22d3ee':'#ef4444'},
-            {l:'WIN RATE',v:winRate!=null?winRate+'%':'--',s:wins+'W '+(closed.length-wins)+'L',vc:'#a78bfa'},
-            {l:'CASH',v:portfolio.loaded?'$'+(portfolio.cash||0).toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:portfolio.loaded?((portfolio.cash/equity)*100||0).toFixed(0)+'%':'--',vc:'#fbbf24'},
-            {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#facc15'},
+            {l:'EQUITY',v:portfolio.loaded?'$'+equity.toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:(totalRet>=0?'+':'')+totalRet.toFixed(2)+'%',vc:totalRet>=0?'#10b981':'#f43f5e'},
+            {l:'OPEN P&L',v:pnlFmt(openPnl),s:portfolio.positions.length+' open',vc:openPnl>=0?'#10b981':'#f43f5e'},
+            {l:'REALISED',v:pnlFmt(realPnl),s:closed.length+' trades',vc:realPnl>=0?'#06b6d4':'#f43f5e'},
+            {l:'WIN RATE',v:winRate!=null?winRate+'%':'--',s:wins+'W '+(closed.length-wins)+'L',vc:'#8b5cf6'},
+            {l:'CASH',v:portfolio.loaded?'$'+(portfolio.cash||0).toLocaleString('en-US',{maximumFractionDigits:0}):'--',s:portfolio.loaded?((portfolio.cash/equity)*100||0).toFixed(0)+'%':'--',vc:'#f59e0b'},
+            {l:'SIGNALS',v:buys.length+' BUY',s:'of 20',vc:'#f59e0b'},
           ].map(({l,v,s,vc},i)=>(
-            <div key={i} style={{background:'#07070c',padding:'8px 14px'}}>
+            <div key={i} style={{background:'#1e293b',padding:'8px 14px',borderRadius:4,boxShadow:'0 1px 2px rgba(0,0,0,0.2)'}}>
               <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'0.08em',color:'#334155',marginBottom:2}}>{l}</div>
-              <div style={{fontSize:15,fontWeight:700,color:vc}}>{v}</div>
+              <div style={{fontSize:15,fontWeight:700,color:vc,fontFamily:"'IBM Plex Mono',monospace"}}>{v}</div>
               <div style={{fontSize:10,color:'#475569',marginTop:1}}>{s}</div>
             </div>
           ))}
@@ -2048,9 +2049,9 @@ function App(){
 
       {/* RISK ALERTS */}
       {riskAlerts.length>0&&(
-        <div style={{padding:'4px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #0f0f18',background:'#07070c',flexShrink:0}}>
+        <div style={{padding:'4px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:'1px solid #334155',background:'#1e293b',flexShrink:0}}>
           {riskAlerts.map((a,i)=>(
-            <span key={i} style={{fontSize:11,fontWeight:600,color:a.level==='danger'?'#ef4444':a.level==='warn'?'#fbbf24':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#ef444433':a.level==='warn'?'#fbbf2433':'#60a5fa33'),padding:'3px 8px',borderRadius:3}}>{a.msg}</span>
+            <span key={i} style={{fontSize:11,fontWeight:600,color:a.level==='danger'?'#f43f5e':a.level==='warn'?'#f59e0b':'#60a5fa',border:'1px solid '+(a.level==='danger'?'#f43f5e33':a.level==='warn'?'#f59e0b33':'#60a5fa33'),padding:'3px 8px',borderRadius:6}}>{a.msg}</span>
           ))}
         </div>
       )}
@@ -2067,25 +2068,25 @@ function App(){
             {mobileTab==='log'&&logPanel}
             {mobileTab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);setMobileTab('chart');}}/>}
           </div>
-          <div style={{display:'flex',background:'#07070c',borderTop:'1px solid #0f0f18',flexShrink:0}}>
+          <div style={{display:'flex',background:'#1e293b',borderTop:'1px solid #334155',flexShrink:0}}>
             {[['chart','~','Chart'],['screener','#','Scan'],['positions','$','Pos'],['analytics','%','Stats'],['engine','!','Engine']].map(([t,icon,label])=>(
-              <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',cursor:'pointer',padding:'8px 0',borderTop:mobileTab===t?'2px solid #22d3ee':'2px solid transparent'}}>
-                <span style={{fontSize:14,color:mobileTab===t?'#22d3ee':'#475569'}}>{icon}</span>
-                <span style={{fontSize:9,color:mobileTab===t?'#22d3ee':'#475569',textTransform:'uppercase',fontWeight:700}}>{label}</span>
+              <button key={t} onClick={()=>setMobileTab(t)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',cursor:'pointer',padding:'8px 0',borderTop:mobileTab===t?'2px solid #06b6d4':'2px solid transparent'}}>
+                <span style={{fontSize:14,color:mobileTab===t?'#06b6d4':'#475569'}}>{icon}</span>
+                <span style={{fontSize:9,color:mobileTab===t?'#06b6d4':'#475569',textTransform:'uppercase',fontWeight:700}}>{label}</span>
               </button>
             ))}
           </div>
         </div>
       ):(
         <div style={{flex:1,display:'grid',gridTemplateColumns:'1fr 320px',minHeight:0,overflow:'hidden'}}>
-          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',borderRight:'1px solid #0f0f14'}}>
-            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',borderBottom:'2px solid #0f0f18'}}>
-              <div style={{background:'#07070c',display:'flex',borderBottom:'1px solid #0f0f18',flexShrink:0,overflowX:'auto'}}>
+          <div style={{display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden',borderRight:'1px solid #334155'}}>
+            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',borderBottom:'2px solid #334155'}}>
+              <div style={{background:'#1e293b',display:'flex',borderBottom:'1px solid #334155',flexShrink:0,overflowX:'auto'}}>
                 {[['screener','Scanner'],['positions','Positions ('+portfolio.positions.length+')'],['analytics','Analytics'],['log','Trade Log'],['history','History']].map(([t,l])=>(
                   <button key={t} onClick={()=>setTab(t)}
                     style={{padding:'9px 16px',fontSize:12,fontWeight:700,
-                      borderBottom:tab===t?'2px solid #22d3ee':'2px solid transparent',
-                      color:tab===t?'#22d3ee':'#475569',
+                      borderBottom:tab===t?'2px solid #06b6d4':'2px solid transparent',
+                      color:tab===t?'#06b6d4':'#475569',
                       background:'none',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>
                     {l}
                   </button>
@@ -2099,15 +2100,15 @@ function App(){
                 {tab==='history'&&<HistoryPanel onSelectSym={s=>{setSelectedSym(s);}}/>}
               </div>
             </div>
-            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',background:'#060608'}}>
-              <div style={{display:'flex',gap:2,padding:'5px 10px',flexWrap:'wrap',borderBottom:'1px solid #0a0a12',background:'#07070c',flexShrink:0,overflowX:'auto'}}>
+            <div style={{flex:'0 0 50%',minHeight:0,display:'flex',flexDirection:'column',background:'#111827'}}>
+              <div style={{display:'flex',gap:2,padding:'5px 10px',flexWrap:'wrap',borderBottom:'1px solid #1e293b44',background:'#1e293b',flexShrink:0,overflowX:'auto'}}>
                 {SEEDS.map(s=>(
                   <button key={s.symbol} onClick={()=>setSelectedSym(s.symbol)}
                     style={{padding:'3px 8px',fontSize:11,fontWeight:700,
-                      border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'88':'#111'),
+                      border:'1px solid '+(selectedSym===s.symbol?TIER_COLOR[s.tier]+'88':'#1e293b'),
                       color:selectedSym===s.symbol?TIER_COLOR[s.tier]:'#334155',
                       background:selectedSym===s.symbol?TIER_COLOR[s.tier]+'11':'transparent',
-                      cursor:'pointer',borderRadius:3,whiteSpace:'nowrap'}}>
+                      cursor:'pointer',borderRadius:6,whiteSpace:'nowrap'}}>
                     {s.symbol}
                   </button>
                 ))}
@@ -2118,7 +2119,7 @@ function App(){
               </div>
             </div>
           </div>
-          <div style={{minHeight:0,overflow:'hidden',background:'#07070c'}}>
+          <div style={{minHeight:0,overflow:'hidden',background:'#1e293b'}}>
             {rightPanel}
           </div>
         </div>
@@ -2138,7 +2139,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.error) {
       return React.createElement('div', {
-        style: { background: '#050507', color: '#ef4444', padding: 40, fontFamily: 'monospace',
+        style: { background: '#0f172a', color: '#f43f5e', padding: 40, fontFamily: 'monospace',
                  height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 16 }
       },
         React.createElement('div', { style: { fontSize: 24, fontWeight: 700 } }, 'TFP — UI Crash Caught'),
@@ -2148,13 +2149,13 @@ class ErrorBoundary extends React.Component {
           this.state.info?.componentStack?.slice(0, 500) || ''),
         React.createElement('button', {
           onClick: () => { this.setState({ error: null, info: null }); },
-          style: { padding: '12px 32px', fontSize: 14, fontWeight: 700, border: '2px solid #fbbf24',
-                   color: '#fbbf24', background: '#1c1000', cursor: 'pointer', borderRadius: 6, marginTop: 12 }
+          style: { padding: '12px 32px', fontSize: 14, fontWeight: 700, border: '2px solid #f59e0b',
+                   color: '#f59e0b', background: '#78350f22', cursor: 'pointer', borderRadius: 8, marginTop: 12 }
         }, 'Reload UI'),
         React.createElement('button', {
           onClick: () => window.location.reload(),
           style: { padding: '10px 24px', fontSize: 12, border: '1px solid #334155',
-                   color: '#94a3b8', background: 'transparent', cursor: 'pointer', borderRadius: 4 }
+                   color: '#94a3b8', background: 'transparent', cursor: 'pointer', borderRadius: 8 }
         }, 'Hard Refresh')
       );
     }
