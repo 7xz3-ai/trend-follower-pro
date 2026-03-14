@@ -1,0 +1,5 @@
+node_modules/
+.env
+metadata.json
+metadata.json.tmp
+*.log

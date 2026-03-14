@@ -16,6 +16,45 @@ const DATA_HOST   = 'data.alpaca.markets';
 
 const SYMBOLS = ['NVDA', 'META'];
 
+// =============================================================================
+// SECURITY: Rate Limiter (in-memory, no external dependency)
+// =============================================================================
+const rateLimitStore = new Map(); // ip -> { count, resetAt }
+
+function rateLimit({ windowMs = 60000, max = 30, message = 'Too many requests' } = {}) {
+  return (req, res, next) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    let entry = rateLimitStore.get(ip);
+    if (!entry || now > entry.resetAt) {
+      entry = { count: 0, resetAt: now + windowMs };
+      rateLimitStore.set(ip, entry);
+    }
+    entry.count++;
+    res.setHeader('X-RateLimit-Limit', String(max));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, max - entry.count)));
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
+    if (entry.count > max) {
+      return res.status(429).json({ error: message });
+    }
+    next();
+  };
+}
+
+// Sweep expired entries every 5 min to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitStore) {
+    if (now > entry.resetAt) rateLimitStore.delete(ip);
+  }
+}, 300000);
+
+// Rate limiter instances
+const tradeLimiter     = rateLimit({ windowMs: 60000, max: 10, message: 'Trade rate limit exceeded (10/min)' });
+const closeLimiter     = rateLimit({ windowMs: 60000, max: 10, message: 'Close rate limit exceeded (10/min)' });
+const backtestLimiter  = rateLimit({ windowMs: 60000, max: 3,  message: 'Backtest rate limit exceeded (3/min)' });
+const generalLimiter   = rateLimit({ windowMs: 60000, max: 60, message: 'Rate limit exceeded (60/min)' });
+
 // orderId -> {symbol, qty, sl, tp, entryPrice, isAuto, enteredAt, legs:[]}
 // Child leg IDs (stop_loss/take_profit) are derived in memory; only parents written to disk.
 const orderMeta = new Map();
@@ -250,14 +289,37 @@ function connectTradeUpdates() {
 const app    = express();
 const server = http.createServer(app);
 
-app.use(express.json());
-// CORS: In production, set FRONTEND_ORIGIN to your Vercel/Netlify URL for tighter security.
-// e.g. FRONTEND_ORIGIN=https://my-tfp.vercel.app
-const ALLOWED_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
-app.use((_, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+// SECURITY: Cap JSON body size to 1KB -- prevents memory exhaustion attacks
+app.use(express.json({ limit: '1kb' }));
+
+// SECURITY: Strict CORS -- rejects requests from non-allowed origins
+// In production, FRONTEND_ORIGIN MUST be set (e.g. https://my-tfp.vercel.app)
+const ALLOWED_ORIGIN = process.env.FRONTEND_ORIGIN || '';
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGIN && ALLOWED_ORIGIN !== '*') {
+    // Strict mode: only allow the configured origin
+    if (origin === ALLOWED_ORIGIN) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    // If origin doesn't match, we simply don't set the CORS header.
+    // The browser will block the response. Non-browser clients (Postman)
+    // can still reach us, so we add extra validation below.
+  } else if (!ALLOWED_ORIGIN) {
+    // Same-origin mode: no CORS headers at all (frontend served from same Express)
+    // External origins get no Access-Control-Allow-Origin → browser blocks them.
+  } else {
+    // Explicit wildcard (development only)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // SECURITY: Hardened response headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 app.options('*', (_, res) => res.sendStatus(204));
@@ -271,6 +333,9 @@ app.use(express.static(path.join(__dirname, 'public'), {
     }
   }
 }));
+
+// SECURITY: Apply general rate limit to all API routes
+app.use('/api', generalLimiter);
 
 app.get('/health', (_, res) => res.json({
   ok: true, paper: true,
@@ -328,22 +393,39 @@ app.get('/api/positions', async (_, res) => {
 
 // Submit bracket order to Alpaca Paper API
 // Entry (market) + Stop Loss + Take Profit all live on Alpaca's servers
-app.post('/api/trade', async (req, res) => {
+app.post('/api/trade', tradeLimiter, async (req, res) => {
   if (!API_KEY) return res.status(401).json({ error: 'No Alpaca API keys configured' });
 
   const { symbol, qty, stopLoss, takeProfit, price, isAuto } = req.body;
 
-  if (!symbol || !qty || !stopLoss || !takeProfit) {
-    return res.status(400).json({ error: 'Required fields: symbol, qty, stopLoss, takeProfit' });
+  // SECURITY: Strict type validation -- prevents injection and type confusion
+  if (typeof symbol !== 'string')       return res.status(400).json({ error: 'symbol must be a string' });
+  if (typeof qty !== 'number')          return res.status(400).json({ error: 'qty must be a number' });
+  if (typeof stopLoss !== 'number')     return res.status(400).json({ error: 'stopLoss must be a number' });
+  if (typeof takeProfit !== 'number')   return res.status(400).json({ error: 'takeProfit must be a number' });
+  if (price !== undefined && typeof price !== 'number') return res.status(400).json({ error: 'price must be a number' });
+
+  // SECURITY: Symbol allowlist -- only trade the symbols we know about
+  const cleanSymbol = symbol.trim().toUpperCase();
+  if (!SYMBOLS.includes(cleanSymbol)) {
+    return res.status(400).json({ error: 'Symbol not in allowed list: ' + SYMBOLS.join(', ') });
   }
+
+  // SECURITY: Sanity bounds -- prevent absurd orders
+  if (!isFinite(qty) || !isFinite(stopLoss) || !isFinite(takeProfit)) {
+    return res.status(400).json({ error: 'Numeric values must be finite' });
+  }
+  if (stopLoss <= 0 || takeProfit <= 0) return res.status(400).json({ error: 'Prices must be positive' });
+
   const qtyInt = Math.floor(Number(qty));
-  if (qtyInt < 1)             return res.status(400).json({ error: 'qty must be >= 1 share' });
-  if (stopLoss >= takeProfit) return res.status(400).json({ error: 'stopLoss must be below takeProfit' });
+  if (qtyInt < 1)               return res.status(400).json({ error: 'qty must be >= 1 share' });
+  if (qtyInt > 500)             return res.status(400).json({ error: 'qty must be <= 500 shares per order' });
+  if (stopLoss >= takeProfit)   return res.status(400).json({ error: 'stopLoss must be below takeProfit' });
   if (price && stopLoss >= price)   return res.status(400).json({ error: 'stopLoss must be below entry price' });
   if (price && takeProfit <= price) return res.status(400).json({ error: 'takeProfit must be above entry price' });
 
   const payload = {
-    symbol,
+    symbol:        cleanSymbol,
     qty:           String(qtyInt),
     side:          'buy',
     type:          'market',
@@ -353,7 +435,7 @@ app.post('/api/trade', async (req, res) => {
     take_profit: { limit_price: takeProfit.toFixed(2) }
   };
 
-  console.log('[TRADE] Submit:', symbol, 'x' + qtyInt, 'SL:' + stopLoss, 'TP:' + takeProfit, isAuto ? 'AUTO' : 'MANUAL');
+  console.log('[TRADE] Submit:', cleanSymbol, 'x' + qtyInt, 'SL:' + stopLoss, 'TP:' + takeProfit, isAuto ? 'AUTO' : 'MANUAL');
 
   try {
     const order = await broker('POST', '/v2/orders', payload);
@@ -370,21 +452,27 @@ app.post('/api/trade', async (req, res) => {
 // Using POST + body instead of DELETE /:symbol avoids any Express route-param
 // ambiguity and is safe for any future symbol format (crypto: BTC/USD, etc.).
 // cancel_orders=true cancels the open SL/TP bracket legs before liquidating.
-app.post('/api/close-position', async (req, res) => {
-  console.log('[CLOSE] Request received, body:', req.body);   // confirm route is hit
+app.post('/api/close-position', closeLimiter, async (req, res) => {
   if (!API_KEY) return res.status(401).json({ error: 'No Alpaca API keys configured' });
 
   const { symbol } = req.body;
-  if (!symbol) return res.status(400).json({ error: 'symbol is required in request body' });
 
-  console.log('[CLOSE] Liquidating', symbol, 'with cancel_orders=true');
+  // SECURITY: Strict type + allowlist validation
+  if (typeof symbol !== 'string') return res.status(400).json({ error: 'symbol must be a string' });
+  const cleanSymbol = symbol.trim().toUpperCase();
+  if (!SYMBOLS.includes(cleanSymbol)) {
+    return res.status(400).json({ error: 'Symbol not in allowed list: ' + SYMBOLS.join(', ') });
+  }
+  console.log('[CLOSE] Request received for:', cleanSymbol);
+
+  console.log('[CLOSE] Liquidating', cleanSymbol, 'with cancel_orders=true');
   try {
-    const result = await broker('DELETE', `/v2/positions/${encodeURIComponent(symbol)}?cancel_orders=true`);
-    console.log('[CLOSE]', symbol, 'OK - order id:', result.id || '(empty)', 'status:', result.status || '(empty)');
-    res.json({ success: true, symbol, order_id: result.id || null, status: result.status || null });
+    const result = await broker('DELETE', `/v2/positions/${encodeURIComponent(cleanSymbol)}?cancel_orders=true`);
+    console.log('[CLOSE]', cleanSymbol, 'OK - order id:', result.id || '(empty)', 'status:', result.status || '(empty)');
+    res.json({ success: true, symbol: cleanSymbol, order_id: result.id || null, status: result.status || null });
   } catch(e) {
-    console.log('[CLOSE] Alpaca error for', symbol, '- HTTP', e.status, '-', e.message, '- body:', JSON.stringify(e.body || {}));
-    res.status(e.status || 500).json({ error: e.message, alpaca_code: e.alpacaCode, symbol });
+    console.log('[CLOSE] Alpaca error for', cleanSymbol, '- HTTP', e.status, '-', e.message, '- body:', JSON.stringify(e.body || {}));
+    res.status(e.status || 500).json({ error: e.message, alpaca_code: e.alpacaCode, symbol: cleanSymbol });
   }
 });
 
@@ -392,7 +480,8 @@ app.post('/api/close-position', async (req, res) => {
 app.get('/api/orders', async (req, res) => {
   if (!API_KEY) return res.status(401).json({ error: 'No Alpaca API keys configured' });
   try {
-    const { limit = '100' } = req.query;
+    // SECURITY: Sanitize limit to prevent oversized Alpaca API responses
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 100), 200);
     const orders = await broker('GET', `/v2/orders?status=closed&limit=${limit}&direction=desc&nested=true`);
     const list = Array.isArray(orders) ? orders : [];
     res.json(list.filter(o => o.status === 'filled').map(o => {
@@ -430,8 +519,10 @@ function calcATR(bars) {
 }
 
 app.get('/api/atr/:symbol', async (req, res) => {
-  const { symbol } = req.params;
+  const symbol = req.params.symbol.trim().toUpperCase();
   if (!API_KEY) return res.status(401).json({ error: 'No API keys' });
+  // SECURITY: Only allow known symbols
+  if (!SYMBOLS.includes(symbol)) return res.status(400).json({ error: 'Symbol not in allowed list' });
   // Serve cache if fresh enough
   const cached = atrCache.get(symbol);
   if (cached && Date.now() - cached.ts < ATR_CACHE_TTL) {
@@ -456,8 +547,11 @@ app.get('/api/atr/:symbol', async (req, res) => {
 
 // Market data endpoints (unchanged)
 app.get('/api/bars/:symbol', (req, res) => {
-  const { symbol } = req.params;
-  const { timeframe = '5Min', limit = '390', start, end } = req.query;
+  const symbol = req.params.symbol.trim().toUpperCase();
+  const { timeframe = '5Min', start, end } = req.query;
+  // SECURITY: Validate symbol + cap limit
+  if (!SYMBOLS.includes(symbol)) return res.status(400).json({ error: 'Symbol not in allowed list' });
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 390), 1000);
   if (!API_KEY) return res.status(401).json({ error: 'No API keys' });
   let p = `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=${limit}&adjustment=raw&feed=iex`;
   if (start) p += `&start=${encodeURIComponent(start)}`;
@@ -466,14 +560,17 @@ app.get('/api/bars/:symbol', (req, res) => {
 });
 
 app.get('/api/history/:symbol', async (req, res) => {
-  const { symbol } = req.params;
-  const { timeframe = '1Day', days = '30' } = req.query;
+  const symbol = req.params.symbol.trim().toUpperCase();
+  const { timeframe = '1Day' } = req.query;
+  // SECURITY: Validate symbol + cap days
+  if (!SYMBOLS.includes(symbol)) return res.status(400).json({ error: 'Symbol not in allowed list' });
+  const days = Math.min(Math.max(1, parseInt(req.query.days) || 30), 365);
   if (!API_KEY) return res.status(401).json({ error: 'No API keys' });
   try {
     const end = new Date(), start = new Date();
-    start.setDate(start.getDate() - parseInt(days));
+    start.setDate(start.getDate() - days);
     const bars = await fetchAllBars(symbol, timeframe, start.toISOString(), end.toISOString());
-    res.json({ symbol, timeframe, days: parseInt(days), count: bars.length, bars });
+    res.json({ symbol, timeframe, days, count: bars.length, bars });
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
@@ -796,7 +893,7 @@ async function runBacktest({ symbols, days, timeframe, initialEquity, posAmt, ma
 // GET /api/backtest?days=30&timeframe=5Min&posAmt=2000&maxPositions=8&minStrength=45
 // Runs the full backtest and returns trade history + summary.
 // Expect 10-30s response time depending on number of symbols and days.
-app.get('/api/backtest', async (req, res) => {
+app.get('/api/backtest', backtestLimiter, async (req, res) => {
   if (!API_KEY) return res.status(401).json({ error: 'No API keys configured' });
   const {
     days          = '30',
@@ -838,10 +935,34 @@ app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html
 
 
 
-const wss = new WebSocketServer({ server, path: '/ws' });
-wss.on('connection', ws => {
+// SECURITY: WebSocket origin verification
+const wss = new WebSocketServer({
+  server, path: '/ws',
+  verifyClient: ({ origin, req }) => {
+    // When FRONTEND_ORIGIN is set, strictly verify the Origin header.
+    // Browser WebSocket connections always send Origin; its absence signals
+    // a non-browser client (scripts, Postman) which we also reject.
+    if (ALLOWED_ORIGIN && ALLOWED_ORIGIN !== '*') {
+      if (!origin || origin !== ALLOWED_ORIGIN) {
+        console.log('[WS] Rejected connection from origin:', origin || '(none)');
+        return false;
+      }
+    }
+    // Rate limit: max 5 WS connections per IP
+    const ip = req.socket.remoteAddress || 'unknown';
+    let count = 0;
+    clients.forEach((meta) => { if (meta.ip === ip) count++; });
+    if (count >= 5) {
+      console.log('[WS] Rejected: too many connections from', ip);
+      return false;
+    }
+    return true;
+  }
+});
+wss.on('connection', (ws, req) => {
   const id = cid++;
-  clients.set(ws, { id });
+  const ip = req.socket.remoteAddress || 'unknown';
+  clients.set(ws, { id, ip });
   ws.send(JSON.stringify({
     type: 'connected', clientId: id, symbols: SYMBOLS,
     alpacaReady: alpaca.ready, tradeStreamReady: tradeStream.ready,
