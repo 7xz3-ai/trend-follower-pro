@@ -14,12 +14,7 @@ const PORT       = parseInt(process.env.PORT || '3000', 10);
 const BROKER_HOST = 'paper-api.alpaca.markets';
 const DATA_HOST   = 'data.alpaca.markets';
 
-const SYMBOLS = [
-  'NVDA','TSLA','AAPL','MSFT','AMZN','META','GOOGL',
-  'AMD','SMCI','MSTR','SOXL',
-  'SPY','QQQ','TQQQ',
-  'PLTR','NFLX','COIN','MARA','SOFI','RIVN'
-];
+const SYMBOLS = ['NVDA', 'META'];
 
 // orderId -> {symbol, qty, sl, tp, entryPrice, isAuto, enteredAt, legs:[]}
 // Child leg IDs (stop_loss/take_profit) are derived in memory; only parents written to disk.
