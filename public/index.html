@@ -47,25 +47,7 @@ const wsUrl = () => {
 
 const SEEDS=[
   {symbol:'NVDA',price:875,vol:0.020,baseRsi:52,tier:'SEMI'},
-  {symbol:'TSLA',price:245,vol:0.031,baseRsi:46,tier:'MEGA'},
-  {symbol:'AAPL',price:222,vol:0.012,baseRsi:50,tier:'MEGA'},
-  {symbol:'MSFT',price:415,vol:0.013,baseRsi:51,tier:'MEGA'},
-  {symbol:'AMZN',price:210,vol:0.016,baseRsi:49,tier:'MEGA'},
   {symbol:'META',price:615,vol:0.017,baseRsi:54,tier:'MEGA'},
-  {symbol:'GOOGL',price:185,vol:0.013,baseRsi:48,tier:'MEGA'},
-  {symbol:'AMD',price:168,vol:0.024,baseRsi:45,tier:'SEMI'},
-  {symbol:'SMCI',price:48,vol:0.045,baseRsi:38,tier:'SEMI'},
-  {symbol:'MSTR',price:380,vol:0.048,baseRsi:42,tier:'SEMI'},
-  {symbol:'SOXL',price:28,vol:0.055,baseRsi:40,tier:'ETF'},
-  {symbol:'SPY',price:585,vol:0.008,baseRsi:52,tier:'ETF'},
-  {symbol:'QQQ',price:510,vol:0.010,baseRsi:51,tier:'ETF'},
-  {symbol:'TQQQ',price:72,vol:0.032,baseRsi:47,tier:'ETF'},
-  {symbol:'PLTR',price:82,vol:0.030,baseRsi:47,tier:'GRWTH'},
-  {symbol:'NFLX',price:1050,vol:0.015,baseRsi:53,tier:'GRWTH'},
-  {symbol:'COIN',price:245,vol:0.044,baseRsi:44,tier:'GRWTH'},
-  {symbol:'MARA',price:16,vol:0.065,baseRsi:39,tier:'GRWTH'},
-  {symbol:'SOFI',price:14,vol:0.038,baseRsi:43,tier:'GRWTH'},
-  {symbol:'RIVN',price:13,vol:0.050,baseRsi:41,tier:'GRWTH'},
 ];
 const TIER_COLOR={MEGA:'#22d3ee',SEMI:'#a78bfa',ETF:'#38bdf8',GRWTH:'#fbbf24'};
 const TIMEFRAMES=['1min','5min','15min','30min','1hr','4hr','1day','1W','1M'];
@@ -753,7 +735,7 @@ function App(){
   const [manualAmt,setManualAmt]=useState(2000);
   const [isMobile,setIsMobile]=useState(window.innerWidth<=768);
   const [mktStatus,setMktStatus]=useState(getMarketStatus());
-  const [cfg,setCfg]=useState({maxPositions:8,minStrength:45,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
+  const [cfg,setCfg]=useState({maxPositions:2,minStrength:45,trailMult:0.8,cooldownSec:15,maxHoldSec:180});
   // Demo
   const [demoState,setDemoState]=useState('idle');
   const [demoSym,setDemoSym]=useState('NVDA');
@@ -1644,7 +1626,7 @@ function App(){
               <span style={{fontSize:8,color:'#a78bfa',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:700}}>Symbol</span>
               <select value={btCfg.symbols} onChange={e=>setBtCfg(p=>({...p,symbols:e.target.value}))}
                 style={{background:'#0a0a14',border:'1px solid '+(btCfg.symbols!=='ALL'?'#a78bfa88':'#1e293b'),color:btCfg.symbols!=='ALL'?'#a78bfa':'#e2e8f0',fontSize:10,padding:'3px 5px',borderRadius:3,fontWeight:700}}>
-                <option value="ALL">ALL (20)</option>
+                <option value="ALL">ALL (2)</option>
                 {SEEDS.map(s=><option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
               </select>
             </div>
@@ -1653,7 +1635,7 @@ function App(){
               {label:'TF',key:'timeframe',opts:['1Min','5Min','15Min']},
               {label:'Min Str%',key:'minStrength',opts:[35,45,55,65]},
               {label:'Pos $',key:'posAmt',opts:[1000,2000,5000]},
-              {label:'MaxPos',key:'maxPositions',opts:[4,6,8]},
+              {label:'MaxPos',key:'maxPositions',opts:[1,2]},
             ].map(({label,key,opts})=>(
               <div key={key} style={{display:'flex',flexDirection:'column',gap:2}}>
                 <span style={{fontSize:8,color:'#475569',textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</span>
@@ -1972,7 +1954,7 @@ function App(){
           </div>
         </div>
         {[
-          {k:'maxPositions',l:'Max simultaneous positions',min:1,max:12,step:1,sfx:''},
+          {k:'maxPositions',l:'Max simultaneous positions',min:1,max:2,step:1,sfx:''},
           {k:'minStrength',l:'Min signal strength to enter',min:25,max:90,step:5,sfx:'%'},
           {k:'cooldownSec',l:'Cooldown per symbol',min:5,max:300,step:5,sfx:'s'},
           {k:'maxHoldSec',l:'Force-close after (demo only)',min:30,max:1800,step:30,sfx:'s'},
